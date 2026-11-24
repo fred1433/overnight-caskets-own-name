@@ -84,7 +84,7 @@ def attributes(body):
 
 def display_name(title):
     t = re.sub(r"\s+", " ", title).strip()
-    t = re.sub(r"\s+-\s*[^-]*casket\s*$", "", t, flags=re.I)
+    t = re.sub(r"\s*-\s*[^-]*casket\s*$", "", t, flags=re.I)
     m = re.match(r"(.*?)\s+(with .*)$", t, re.I)
     if m and len(m.group(1)) > 6:
         return m.group(1), m.group(2)[0].lower() + m.group(2)[1:]
