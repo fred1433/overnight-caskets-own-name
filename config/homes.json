@@ -1,0 +1,111 @@
+{
+  "_note": "Two invented funeral homes for the demo. Names, monograms, colours, staff, families and arrangements are samples. Product handles must exist in the catalog snapshot.",
+  "homes": [
+    {
+      "id": "0b6f2a3e-5c1d-4e8a-9f20-1a0000000001",
+      "name": "Fennimore Hollis Funeral Home",
+      "short": "Fennimore Hollis",
+      "monogram": "FH",
+      "brand": { "accent": "#2C4A41", "accent_soft": "#DCE5DF", "paper": "#F6F4EF", "font": "Cormorant Garamond", "mark": "oval" },
+      "wholesale_basis_pct": 55,
+      "users": [
+        { "id": "7d1e0c55-0000-4000-8000-a00000000001", "label": "Director", "role": "owner", "can_see_cost": true, "can_edit_pricing": true, "can_order": true },
+        { "id": "7d1e0c55-0000-4000-8000-a00000000002", "label": "Arranger", "role": "arranger", "can_see_cost": false, "can_edit_pricing": false, "can_order": false }
+      ],
+      "rules": [
+        { "label": "Jewish caskets", "collection": "jewish-caskets", "item_type": "casket", "kind": "percent", "value": 95, "rounding": "whole", "floor": 1495 },
+        { "label": "Veterans", "collection": "veterans", "item_type": "casket", "kind": "percent", "value": 100, "rounding": "whole", "floor": 0 },
+        { "label": "Solid wood", "collection": "solid-wood-caskets", "item_type": "casket", "kind": "percent", "value": 120, "rounding": "ninety_five", "floor": 2495 },
+        { "label": "Every other casket", "collection": null, "item_type": "casket", "kind": "percent", "value": 100, "rounding": "ninety_five", "floor": 1795 },
+        { "label": "Head panels", "collection": null, "item_type": "lid_panel", "kind": "amount", "value": 120, "rounding": "whole", "floor": 0 }
+      ],
+      "rooms": [
+        { "name": "Solid wood", "collection": "solid-wood-caskets", "items": [
+          "wood-caskets-cambridge-solid-mahogany-wood-with-almond-velvet-interior-wood-casket",
+          "presidential-solid-mahogany-with-almond-velvet-interior",
+          "wood-caskets-newton-solid-cherry-with-ivory-velvet-interior",
+          "wood-caskets-fairbanks-solid-pecan-casket-with-almond-velvet-interior-wood-casket",
+          "montclair-solid-oak-casket-with-ivory-velvet-interior-wood-casket",
+          "wood-caskets-melody-solid-oak-casket-with-ivory-velvet-interior-wood-casket",
+          "wood-caskets-timberline-solid-cedar-wood-with-ivory-velvet-interior",
+          "wood-caskets-westbrook-solid-maple-wood-casket-with-almond-velvet-interior-wood-casket",
+          "columbia-solid-mahogany-wood-with-velvet-interior",
+          "wood-caskets-homewood-solid-oak-casket-with-duck-cloth-interior-wood-casket",
+          "wood-caskets-mckenzie-solid-poplar-casket-with-ivory-velvet-interior-wood-casket",
+          "wood-caskets-mayfield-solid-mahogany-carved-top-with-almond-velvet-interior-wood-casket"
+        ]},
+        { "name": "Jewish caskets", "collection": "jewish-caskets", "items": "all_available" },
+        { "name": "Veterans", "collection": "veterans", "items": "all_available" }
+      ],
+      "session_family": "Morales family",
+      "samples": [
+        { "family": "Lindqvist family", "order_type": "Buy Now", "lines": [
+          { "step": "casket", "handle": "wood-funeral-caskets-maroset-jewish-poplar-with-white-crepe-interior-wood-casket" }
+        ]}
+      ]
+    },
+    {
+      "id": "0b6f2a3e-5c1d-4e8a-9f20-1a0000000002",
+      "name": "Calder Ruiz Memorial Chapel",
+      "short": "Calder Ruiz",
+      "monogram": "CR",
+      "brand": { "accent": "#5A2C47", "accent_soft": "#EADDE4", "paper": "#F5F3F2", "font": "Marcellus", "mark": "arch" },
+      "wholesale_basis_pct": 60,
+      "users": [
+        { "id": "7d1e0c55-0000-4000-8000-b00000000001", "label": "Director", "role": "owner", "can_see_cost": true, "can_edit_pricing": true, "can_order": true },
+        { "id": "7d1e0c55-0000-4000-8000-b00000000002", "label": "Arranger", "role": "arranger", "can_see_cost": false, "can_edit_pricing": false, "can_order": false }
+      ],
+      "rules": [
+        { "label": "Religious", "collection": "religious-caskets", "item_type": "casket", "kind": "amount", "value": 1450, "rounding": "whole", "floor": 0 },
+        { "label": "Metal", "collection": "metal-caskets", "item_type": "casket", "kind": "percent", "value": 90, "rounding": "whole", "floor": 1895 },
+        { "label": "Wood", "collection": "wood-caskets", "item_type": "casket", "kind": "percent", "value": 110, "rounding": "ninety_five", "floor": 2195 },
+        { "label": "Every other casket", "collection": null, "item_type": "casket", "kind": "percent", "value": 100, "rounding": "whole", "floor": 0 },
+        { "label": "Head panels", "collection": null, "item_type": "lid_panel", "kind": "percent", "value": 80, "rounding": "ninety_five", "floor": 0 }
+      ],
+      "rooms": [
+        { "name": "Religious", "collection": "religious-caskets", "items": [
+          "in-gods-care-spruce-blue-casket-with-blue-velvet-interior-metal-casket",
+          "white-cross-lords-prayer-casket-with-white-velvet-interior-metal-casket",
+          "last-supper-pieta-poplar-wood-mahogany-finish-with-ivory-velvet-interior",
+          "wood-caskets-kingdom-pieta-poplar-wood-walnut-finish-with-rosetan-crepe-interior",
+          "praying-hands-casket-monarch-blue-with-blue-velvet-interior-metal-casket-1",
+          "last-supper-antique-white-casket-metal-casket",
+          "full-couch-golden-cross-casket-with-white-velvet-interior-metal-casket",
+          "metal-funeral-caskets-sanctuary-praying-hands-casket-with-blue-velvet-interior-stainless-steel-casket",
+          "metal-funeral-caskets-going-home-casket-monarch-blue-with-blue-velvet-interior-metal-casket"
+        ]},
+        { "name": "Wood", "collection": "wood-caskets", "items": [
+          "wood-caskets-cambridge-solid-mahogany-wood-with-almond-velvet-interior-wood-casket",
+          "cherry-matinee-veneer-casket-with-cream-velvet-interior-wood-casket",
+          "jackson-cherry-veneer-wood-with-cream-velvet-interior",
+          "washington-cherry-veneer-finish-with-ivory-velvet-interior",
+          "belmont-veneer-casket-with-cream-velvet-interior-wood-casket",
+          "royal-poplar-mahogany-finish-with-cream-interior",
+          "lincoln-solid-poplar-casket-with-almond-velvet-interior-wood-casket",
+          "elite-cherry-solid-poplar-wood-with-cream-velvet-interior-wood-casket",
+          "windsor-white-veneer-wood-with-white-velvet-interior-wood-casket",
+          "savin-white-veneer-wood-with-white-velvet-interior"
+        ]},
+        { "name": "Metal", "collection": "metal-caskets", "items": [
+          "sterling-copper-casket-with-ivory-velvet-interior-metal-casket",
+          "legacy-bronze-casket-with-almond-velvet-interior-metal-casket",
+          "lincoln-pewter-with-white-velvet-interior-stainless-steel-casket",
+          "monticello-rose-with-pink-velvet-interior-stainless-steel-casket",
+          "legacy-gold-with-cream-velvet-interior-metal-casket",
+          "sterling-blue-with-white-velvet-interior-metal-casket",
+          "lincoln-black-casket-with-white-velvet-interior-metal-casket",
+          "caskets-venetian-granite-casket-with-white-velvet-interior-metal-casket",
+          "carnelian-copper-gold-with-almond-velvet-interior-metal-casket",
+          "misty-rose-with-pink-velvet-interior-metal-casket"
+        ]}
+      ],
+      "session_family": "Whitfield family",
+      "samples": [
+        { "family": "Haddad family", "order_type": "Pre-Need", "lines": [
+          { "step": "casket", "handle": "in-gods-care-spruce-blue-casket-with-blue-velvet-interior-metal-casket" },
+          { "step": "lid_panel", "title": "In God's Care Head Panel - Blue" }
+        ]}
+      ]
+    }
+  ]
+}
