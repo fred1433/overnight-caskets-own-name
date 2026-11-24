@@ -231,7 +231,7 @@ function arrangementsHTML(h, u) {
   else if (st === 'failed') {
     list = S.local[h.id];
     note = `<p class="d-note">The in-page database did not start in this browser (${esc(S.db.error)}). The list below is kept in the page only; the same queries run in the repository tests.</p>`;
-  } else return `<p class="db-state" data-db-state>Starting the in-page Postgres database, about 4 MB, once.</p>`;
+  } else return `<p class="db-state" data-db-state>Starting the in-page Postgres database, about 10 MB, once.</p>`;
   const costs = S.costs[h.id] || {};
   const items = list.map((a) => {
     const link = cartLink(a.lines, C.items, a.order_type);
@@ -518,7 +518,7 @@ async function runCheck() {
   const who = $('#who-line');
   btn.disabled = true;
   list.innerHTML = '';
-  who.textContent = 'Starting the in-page Postgres database, about 4 MB, once.';
+  who.textContent = 'Starting the in-page Postgres database, about 10 MB, once.';
   let db;
   try { db = await ensureDb(); } catch (e) {
     who.textContent = `The in-page database did not start in this browser (${S.db.error}). The same checks run in the repository tests.`;
