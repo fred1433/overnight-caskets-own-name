@@ -6,6 +6,8 @@ import { catalog, freshDb, sqlFiles } from './helpers.mjs';
 import { runAs, runAsService, transactionAs, ARRANGEMENTS_SQL } from '../site/db.js';
 import { crossTenantChecks, OWNER_COUNT } from '../site/checks.js';
 import { pgAdapter } from './pg_adapter.mjs';
+import { orderTypeProbe, everyRoomProductOrderable, orderingProbe, variantOwnerProbe } from './probes.mjs';
+import * as pricing from '../site/pricing.js';
 
 const [A, B] = catalog.homes;
 const dir = (h) => h.users.find((u) => u.label === 'Director');
@@ -35,7 +37,7 @@ for (const [name, open] of engines) {
       const ra = await runAs(db, dir(A), ARRANGEMENTS_SQL);
       const rb = await runAs(db, dir(B), ARRANGEMENTS_SQL);
       assert.deepEqual(ra.rows.map((r) => r.family_label), ['Sample: Lindqvist family']);
-      assert.deepEqual(rb.rows.map((r) => r.family_label), ['Sample: Haddad family']);
+      assert.deepEqual(rb.rows.map((r) => r.family_label).sort(), ['Sample: Haddad family', 'Sample: Okafor family']);
       const none = await runAs(db, { id: '00000000-0000-4000-8000-000000000000' }, ARRANGEMENTS_SQL);
       assert.equal(none.rows.length, 0, 'a signed-in person with no membership sees nothing');
     } finally { await db.close?.(); }
@@ -46,7 +48,7 @@ for (const [name, open] of engines) {
     try {
       const cambridge = Object.values(catalog.items).find((i) => i.handle.includes('cambridge-solid-mahogany'));
       const id = await transactionAs(db, arr(A), async (q) => {
-        const a = await q('insert into arrangements (org_id, family_label) values ($1, $2) returning id', [A.id, 'Sample: test family']);
+        const a = await q("insert into arrangements (org_id, family_label, order_type) values ($1, $2, 'Pre-Need') returning id", [A.id, 'Sample: test family']);
         // retail_cents sent as 1 cent: the trigger must replace it with the home's price
         const l = await q('insert into arrangement_lines (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents) values ($1, $2, $3, $4, $5, $6, 1) returning retail_cents',
           [a.rows[0].id, A.id, 'casket', cambridge.id, 50196452901057, cambridge.title]);
@@ -84,6 +86,7 @@ for (const [name, open] of engines) {
     const db = await open();
     try {
       const before = await runAs(db, dir(A), ARRANGEMENTS_SQL);
+      // the sync deletes a product a saved arrangement holds
       const line = (typeof before.rows[0].lines === 'string' ? JSON.parse(before.rows[0].lines) : before.rows[0].lines)[0];
       const del = await runAsService(db, 'delete from catalog_items where id = $1 returning id', [Number(line.item)]);
       assert.equal(del.rows.length, 1);
@@ -91,6 +94,54 @@ for (const [name, open] of engines) {
       const l2 = (typeof after.rows[0].lines === 'string' ? JSON.parse(after.rows[0].lines) : after.rows[0].lines)[0];
       assert.equal(l2.title, line.title);
       assert.equal(l2.retail, line.retail);
+    } finally { await db.close?.(); }
+  });
+
+  test(`${name}: G1, app.price_for answers no one but the triggers and the service role, both directions`, async () => {
+    const db = await open();
+    try {
+      for (const [x, y] of [[A, B], [B, A]]) {
+        for (const u of x.users) {
+          const r = await runAs(db, u, 'select * from app.price_for($1, (select min(id) from catalog_variants))', [y.id]);
+          assert.match(r.error || '', /permission denied/, `${x.short} ${u.label} read ${y.short}'s prices: ${JSON.stringify(r.rows)}`);
+        }
+      }
+    } finally { await db.close?.(); }
+  });
+
+  test(`${name}: G2, a Buy Now or Pre-Need variant is saved only under its own order type`, async () => {
+    const db = await open();
+    try { assert.equal(await orderTypeProbe(db, catalog), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: G2, every product of every room saves as shown and can then be ordered`, async () => {
+    const db = await open();
+    try { assert.equal(await everyRoomProductOrderable(db, catalog, pricing), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: G4, only a person allowed to order changes the order type or the status`, async () => {
+    const db = await open();
+    try { assert.equal(await orderingProbe(db, catalog), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: G5, a line's variant belongs to the line's product`, async () => {
+    const db = await open();
+    try { assert.equal(await variantOwnerProbe(db, catalog), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: an arrangement holding a product the catalog read does not have still shows`, async () => {
+    const db = await open();
+    try {
+      const rb = await runAs(db, dir(B), ARRANGEMENTS_SQL);
+      const ok = rb.rows.find((r) => r.family_label === 'Sample: Okafor family');
+      const lines = typeof ok.lines === 'string' ? JSON.parse(ok.lines) : ok.lines;
+      assert.equal(lines.length, 1);
+      assert.equal(lines[0].retail, 245000);
+      const link = pricing.cartLink(lines, catalog.items, ok.order_type, catalog.read_started);
+      assert.equal(link.url, null);
+      assert.equal(link.leftOut[0].reason, 'Not in the catalog read on 24 Nov 2026');
+      const staff = await transactionAs(db, dir(B), (q) => q("insert into arrangement_lines (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents) values ($1, $2, 'casket', 0, 0, 'x', 1)", [ok.id, B.id])).catch((e) => e.message);
+      assert.match(String(staff), /not in the catalog/, 'staff cannot add a line outside the catalog');
     } finally { await db.close?.(); }
   });
 }

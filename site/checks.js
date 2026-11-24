@@ -24,6 +24,10 @@ export function crossTenantChecks(A, B) {
     { id: 'rules', user: director, question: `${A.short} reads ${B.short}'s pricing rules`,
       sql: 'select count(*)::int as n from pricing_rules where org_id = $1', params: [B.id],
       pass: (r) => r.rows && r.rows[0].n === 0, answer: (r) => `${r.rows[0].n} rows` },
+    { id: 'prices', user: director, question: `${A.short} asks the database for ${B.short}'s cost and price of a casket`,
+      sql: 'select cost_cents, retail_cents from app.price_for($1, (select min(id) from catalog_variants))', params: [B.id],
+      pass: (r) => (!!r.error && /permission denied/i.test(r.error)) || (!!r.rows && r.rows.every((x) => x.cost_cents == null && x.retail_cents == null)),
+      answer: (r) => (r.error ? 'refused: ' + r.error : `${r.rows.filter((x) => x.cost_cents != null).length} rows`) },
     { id: 'costs', user: director, question: `${A.short} reads ${B.short}'s saved costs`,
       sql: 'select count(*)::int as n from arrangement_line_costs where org_id = $1', params: [B.id],
       pass: (r) => r.rows && r.rows[0].n === 0, answer: (r) => `${r.rows[0].n} rows` },
@@ -33,6 +37,9 @@ export function crossTenantChecks(A, B) {
     { id: 'arranger_costs', user: arranger, question: `${A.short}'s arranger reads ${A.short}'s saved costs`,
       sql: 'select count(*)::int as n from arrangement_line_costs where org_id = $1', params: [A.id],
       pass: (r) => r.rows && r.rows[0].n === 0, answer: (r) => `${r.rows[0].n} rows` },
+    { id: 'arranger_order', user: arranger, question: `${A.short}'s arranger marks an arrangement of ${A.short} as ordered`,
+      sql: "update arrangements set status = 'ordered' where org_id = $1 returning id", params: [A.id],
+      pass: (r) => !!r.error && /ordering is not allowed/i.test(r.error), answer: (r) => (r.error ? 'refused: ' + r.error : `${r.rows.length} rows changed`) },
   ];
 }
 

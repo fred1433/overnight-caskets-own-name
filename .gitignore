@@ -3,3 +3,8 @@ node_modules/
 __pycache__/
 site/vendor/
 .DS_Store
+# The full catalog read and what is built from it stay out of the public repository.
+data/raw/
+site/data/
+site/db/seed.sql
+tests/fixtures/build/

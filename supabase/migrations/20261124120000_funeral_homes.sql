@@ -103,7 +103,8 @@ create table public.arrangements (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
   family_label text not null,
-  order_type text not null default 'Buy Now' check (order_type in ('Buy Now', 'Pre-Need')),
+  -- The order type of the variants actually saved: null when no product in it offers Buy Now / Pre-Need.
+  order_type text check (order_type in ('Buy Now', 'Pre-Need')),
   status text not null default 'saved' check (status in ('saved', 'ordered')),
   created_by uuid default auth.uid(),
   created_at timestamptz not null default now(),
@@ -205,14 +206,28 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- The database prices each line from the home's own rules and freezes cost at save time.
+-- A line saved by a signed-in person must name a variant of its own product, and a Buy Now or
+-- Pre-Need variant must match the order type of its arrangement. Lines imported by the service
+-- role (arrangements made before a product left the catalog) keep their saved title and price.
 create or replace function app.price_line() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare p record;
+declare v record; a_type text; p record;
 begin
-  select * into p from app.price_for(new.org_id, new.variant_id);
-  if p.retail_cents is null then
+  select cv.item_id, cv.order_type into v from public.catalog_variants cv where cv.id = new.variant_id;
+  if not found then
+    if auth.uid() is null then return new; end if;
     raise exception 'variant % is not in the catalog', new.variant_id;
   end if;
+  if v.item_id <> new.item_id then
+    raise exception 'variant % belongs to product %, not to product %', new.variant_id, v.item_id, new.item_id;
+  end if;
+  if v.order_type is not null then
+    select a.order_type into a_type from public.arrangements a where a.id = new.arrangement_id;
+    if a_type is distinct from v.order_type then
+      raise exception 'variant % is a % variant, the arrangement is %', new.variant_id, v.order_type, coalesce(a_type, 'without an order type');
+    end if;
+  end if;
+  select * into p from app.price_for(new.org_id, new.variant_id);
   new.retail_cents := p.retail_cents;
   return new;
 end $$;
@@ -222,8 +237,39 @@ language plpgsql security definer set search_path = public as $$
 declare p record;
 begin
   select * into p from app.price_for(new.org_id, new.variant_id);
-  insert into public.arrangement_line_costs (line_id, org_id, cost_cents, public_price_cents)
-  values (new.id, new.org_id, p.cost_cents, p.public_price_cents);
+  if p.cost_cents is not null then
+    insert into public.arrangement_line_costs (line_id, org_id, cost_cents, public_price_cents)
+    values (new.id, new.org_id, p.cost_cents, p.public_price_cents);
+  end if;
+  return new;
+end $$;
+
+-- Ordering belongs to people allowed to order: a signed-in person without that switch cannot
+-- change the order type or the status, nor save an arrangement as ordered.
+create or replace function app.guard_order() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null and not app.can(new.org_id, 'order') and (
+       (tg_op = 'INSERT' and new.status <> 'saved')
+    or (tg_op = 'UPDATE' and (new.order_type is distinct from old.order_type or new.status is distinct from old.status))) then
+    raise exception 'ordering is not allowed for this person' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+
+-- When the order type changes, each Buy Now / Pre-Need line moves to its product's variant of
+-- that type (same product, same price on the catalog read), so the saved variant stays the one ordered.
+create or replace function app.repoint_lines() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.arrangement_lines l set variant_id = s.id
+  from public.catalog_variants cur, public.catalog_variants s
+  where l.arrangement_id = new.id and cur.id = l.variant_id and cur.order_type is not null
+    and s.item_id = cur.item_id and s.order_type = new.order_type;
+  if exists (select 1 from public.arrangement_lines l join public.catalog_variants cur on cur.id = l.variant_id
+             where l.arrangement_id = new.id and cur.order_type is distinct from new.order_type and cur.order_type is not null) then
+    raise exception 'a product of this arrangement has no % variant', coalesce(new.order_type, 'untyped');
+  end if;
   return new;
 end $$;
 
@@ -231,9 +277,17 @@ create trigger price_line before insert on public.arrangement_lines
   for each row execute function app.price_line();
 create trigger freeze_cost after insert on public.arrangement_lines
   for each row execute function app.freeze_cost();
+create trigger guard_order before insert or update on public.arrangements
+  for each row execute function app.guard_order();
+create trigger repoint_lines after update of order_type on public.arrangements
+  for each row when (new.order_type is distinct from old.order_type) execute function app.repoint_lines();
 
+-- Postgres lets every role execute a new function. price_for takes any home's id and reads that
+-- home's rules and cost basis, so only the triggers above (as the owner) and the service role call it.
+revoke execute on all functions in schema app from public;
 grant execute on function app.is_member(uuid), app.can(uuid, text), app.apply_rule(bigint, text, numeric, text, bigint),
-  app.cost_cents(bigint, numeric), app.price_for(uuid, bigint) to authenticated, service_role;
+  app.cost_cents(bigint, numeric) to authenticated, service_role;
+grant execute on function app.price_for(uuid, bigint) to service_role;
 
 -- Row level security ---------------------------------------------------------------------
 

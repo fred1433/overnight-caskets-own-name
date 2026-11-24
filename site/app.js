@@ -1,4 +1,4 @@
-import { priceFor, money, cartLink, variantForLine } from './pricing.js';
+import { priceFor, money, cartLink, shownVariant, savePlan, orderTypesFor, lineStatus, marginPct } from './pricing.js';
 import { crossTenantChecks, OWNER_COUNT } from './checks.js';
 import { openDb, runAs, runAsService, transactionAs, ARRANGEMENTS_SQL, COSTS_SQL } from './db.js';
 
@@ -20,7 +20,9 @@ const S = {
   arr: {},
   costs: {},
   local: {},
+  present: false,
 };
+const PAGE_TITLE = document.title;
 
 const H = () => C.homes[S.home];
 const P = () => S.per[H().id];
@@ -34,12 +36,12 @@ function fmtRead(iso) {
   return `${d.getUTCDate()} ${mon} ${d.getUTCFullYear()}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
 }
 
-function displayVariant(it) {
-  const pick = P().variantPick[it.id];
-  if (pick) return it.variants.find((v) => v.id === pick);
-  const typed = it.variants.filter((v) => v.order_type);
-  if (typed.length) return typed.find((v) => v.order_type === 'Buy Now' && v.available) || typed.find((v) => v.available) || typed[0];
-  return it.variants.find((v) => v.available) || it.variants[0];
+const displayVariant = (it) => shownVariant(it, P().variantPick[it.id]);
+// The option a director picked on a product sold in several versions (handles, lid style),
+// written for the family: "Handle Type: No Handles". Nothing for Buy Now / Pre-Need.
+function variantNote(it, v = displayVariant(it)) {
+  if (it.variants.length < 2 || it.variants.some((x) => x.order_type)) return '';
+  return `${it.options && it.options[0] && it.options[0] !== 'Title' ? it.options[0] + ': ' : ''}${v.title}`;
 }
 const retail = (it, h = H()) => priceFor(h, it, displayVariant(it)).retail;
 
@@ -50,9 +52,9 @@ function panelName(t) {
 
 function mark(h, size = 44) {
   const a = h.brand.accent;
-  const f = h.brand.font === 'Marcellus' ? "'Marcellus', serif" : "'Cormorant Garamond', serif";
+  const f = h.brand.font === 'Albert Sans' ? "'Albert Sans', sans-serif" : "'Cormorant Garamond', serif";
   if (h.brand.mark === 'arch') {
-    return `<svg viewBox="0 0 44 44" width="${size}" height="${size}" aria-hidden="true"><path d="M6 41V19a16 16 0 0 1 32 0v22z" fill="none" stroke="${a}" stroke-width="1.3"/><path d="M9.5 41V19.5a12.5 12.5 0 0 1 25 0V41" fill="none" stroke="${a}" stroke-width=".6"/><text x="22" y="31" text-anchor="middle" font-family="${f}" font-size="12.5" letter-spacing="1" fill="${a}">${esc(h.monogram)}</text></svg>`;
+    return `<svg viewBox="0 0 44 44" width="${size}" height="${size}" aria-hidden="true"><path d="M6 41V19a16 16 0 0 1 32 0v22z" fill="none" stroke="${a}" stroke-width="1.3"/><path d="M9.5 41V19.5a12.5 12.5 0 0 1 25 0V41" fill="none" stroke="${a}" stroke-width=".6"/><text x="22" y="31" text-anchor="middle" font-family="${f}" font-size="11.5" font-weight="500" letter-spacing="1.5" fill="${a}">${esc(h.monogram)}</text></svg>`;
   }
   return `<svg viewBox="0 0 44 44" width="${size}" height="${size}" aria-hidden="true"><ellipse cx="22" cy="22" rx="19" ry="21" fill="none" stroke="${a}" stroke-width="1.3"/><ellipse cx="22" cy="22" rx="16" ry="18" fill="none" stroke="${a}" stroke-width=".6"/><text x="22" y="27" text-anchor="middle" font-family="${f}" font-size="15" font-weight="600" letter-spacing=".5" fill="${a}">${esc(h.monogram)}</text></svg>`;
 }
@@ -73,8 +75,9 @@ function headerHTML() {
   <header class="bar">
     <div class="brand">${mark(h)}<div class="brand-text"><span class="brand-name">${esc(h.short)}</span><span class="brand-kind">${esc(rest)}</span></div></div>
     <p class="family"><strong>${esc(h.session_family)}</strong><span class="tag">Sample</span></p>
-    <button class="dv-btn" data-act="director" data-k="dv" aria-expanded="${S.director}" aria-controls="director">Director view</button>
+    ${S.present ? '' : `<button class="dv-btn" data-act="director" data-k="dv" aria-expanded="${S.director}" aria-controls="director">Director view</button>`}
   </header>
+  ${S.present ? '<button class="leave" data-act="leave-present" data-k="leave" aria-label="Leave presentation">Leave</button>' : ''}
   <nav class="bar2" aria-label="Rooms and steps">
     <div class="rooms" role="tablist" aria-label="Selection rooms">
       ${h.rooms.map((r) => `<button class="room-tab" role="tab" data-act="room" data-id="${r.id}" data-k="room-${r.id}" aria-selected="${p.step === 'casket' && p.room === r.id}">${esc(r.name)}</button>`).join('')}
@@ -90,8 +93,8 @@ function headerHTML() {
   </nav>`;
 }
 
-const FACTS = [['finish', 'Exterior finish'], ['interior', 'Interior'], ['construction', 'Construction']];
-const COMPARE_ROWS = [['construction', 'Construction'], ['finish', 'Exterior finish'], ['interior', 'Interior'], ['hardware', 'Hardware'], ['bed', 'Bed'], ['sealed', 'Sealed'], ['exterior_size', 'Exterior size']];
+const FACTS = [['material', 'Material'], ['finish', 'Exterior finish'], ['interior', 'Interior']];
+const COMPARE_ROWS = [['material', 'Material'], ['finish', 'Exterior finish'], ['interior', 'Interior'], ['bed', 'Bed'], ['sealed', 'Sealed'], ['exterior_size', 'Exterior size']];
 
 function casketHTML() {
   const h = H();
@@ -115,6 +118,7 @@ function casketHTML() {
       <p class="room-line">${esc(r.name)}, ${ids.length} caskets</p>
       <h2 class="pname">${esc(it.name)}</h2>
       ${it.sub ? `<p class="psub">${esc(it.sub)}</p>` : ''}
+      ${variantNote(it) ? `<p class="pvariant" data-variant-note>${esc(variantNote(it))}</p>` : ''}
       <p class="price" data-price>${money(retail(it))}</p>
       <dl class="facts">${FACTS.filter(([k]) => it.attributes[k]).map(([k, l]) => `<div><dt>${l}</dt><dd>${esc(it.attributes[k])}</dd></div>`).join('')}</dl>
       <div class="actions">
@@ -148,7 +152,7 @@ function compareHTML() {
     <div class="compare-grid">
       <table class="compare-table">
         <colgroup><col class="c-label">${its.map(() => '<col>').join('')}</colgroup>
-        <thead><tr><th scope="col"><span class="sr"></span></th>${its.map((it) => `<th scope="col"><img class="c-photo" src="${img(it.image, 600)}" alt=""><p class="c-name">${esc(it.name)}</p><p class="psub" style="font-size:15px;margin:0">${esc(it.sub)}</p><p class="c-price">${money(retail(it))}</p><div class="c-actions"><button class="btn primary" data-act="choose" data-id="${it.id}" data-k="cchoose-${it.id}">Choose</button><button class="btn" data-act="uncompare" data-id="${it.id}" data-k="unc-${it.id}">Remove</button></div></th>`).join('')}</tr></thead>
+        <thead><tr><th scope="col"><span class="sr"></span></th>${its.map((it) => `<th scope="col"><img class="c-photo" src="${img(it.image, 600)}" alt=""><p class="c-name">${esc(it.name)}</p><p class="psub" style="font-size:15px;margin:0">${esc([it.sub, variantNote(it)].filter(Boolean).join(', '))}</p><p class="c-price">${money(retail(it))}</p><div class="c-actions"><button class="btn primary" data-act="choose" data-id="${it.id}" data-k="cchoose-${it.id}">Choose</button><button class="btn" data-act="uncompare" data-id="${it.id}" data-k="unc-${it.id}">Remove</button></div></th>`).join('')}</tr></thead>
         <tbody>${COMPARE_ROWS.map(([k, l]) => `<tr><th scope="row">${l}</th>${its.map((it) => `<td>${esc(it.attributes[k] || 'Not stated')}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>
     </div>
@@ -160,9 +164,9 @@ function panelsHTML() {
   const p = P();
   const casket = item(p.casket);
   // The custom cap panel is made from the family's own photo and words, so it is not offered from a list.
-  const panels = Object.values(C.items).filter((i) => i.type === 'lid_panel' && panelName(i.title).colour !== 'Custom' && i.variants.some((v) => v.available));
+  const panels = Object.values(C.items).filter((i) => i.type === 'lid_panel' && panelName(i.name).colour !== 'Custom' && i.variants.some((v) => v.available));
   const chips = ['All', 'Ivory', 'White', 'Blue', 'Pink'];
-  const shown = panels.filter((i) => S.chip === 'All' || panelName(i.title).colour === S.chip);
+  const shown = panels.filter((i) => S.chip === 'All' || panelName(i.name).colour === S.chip);
   return `
   <div class="panels">
     <div class="panels-head">
@@ -172,7 +176,7 @@ function panelsHTML() {
     <ul class="panel-grid">
       <li><button class="ptile" data-act="panel" data-id="none" data-k="panel-none" aria-pressed="${p.panel === 'none'}"><span class="none">No head panel</span><b>No head panel</b><small>The casket as shown</small></button></li>
       ${shown.map((i, n0) => {
-        const n = panelName(i.title);
+        const n = panelName(i.name);
         return `<li><button class="ptile" data-act="panel" data-id="${i.id}" data-k="panel-${i.id}" aria-pressed="${p.panel === i.id}"><img src="${img(i.image, 360)}" alt="" ${n0 > 20 ? 'loading="lazy"' : ''}><b>${esc(n.name)}</b><small>${esc(n.colour)}</small><em>${money(retail(i))}</em></button></li>`;
       }).join('')}
     </ul>
@@ -200,7 +204,7 @@ function reviewHTML() {
       <h2>Arrangement for the ${esc(h.session_family)}</h2>
       <p class="sheet-sub">Sample family. Prices are ${esc(h.short)}’s own.</p>
       <table class="lines">
-        <tbody>${lines.map((l) => `<tr><td class="l-img"><img src="${img(l.it.image, 240)}" alt=""></td><td class="l-name"><b>${esc(l.step === 'lid_panel' ? panelName(l.it.title).name + ' head panel' : l.it.name)}</b><span>${esc(l.step === 'lid_panel' ? panelName(l.it.title).colour : l.it.sub)}</span></td><td class="l-price">${money(retail(l.it))}</td></tr>`).join('')}
+        <tbody>${lines.map((l) => `<tr><td class="l-img"><img src="${img(l.it.image, 240)}" alt=""></td><td class="l-name"><b>${esc(l.step === 'lid_panel' ? panelName(l.it.name).name + ' head panel' : l.it.name)}</b><span>${esc(l.step === 'lid_panel' ? panelName(l.it.name).colour : [l.it.sub, variantNote(l.it)].filter(Boolean).join(', '))}</span></td><td class="l-price">${money(retail(l.it))}</td></tr>`).join('')}
         ${p.panel === 'none' ? '<tr><td class="l-img"></td><td class="l-name"><span>No head panel</span></td><td class="l-price"></td></tr>' : ''}</tbody>
         <tfoot><tr><td></td><td>Total</td><td class="l-price">${money(total)}</td></tr></tfoot>
       </table>
@@ -231,26 +235,31 @@ function arrangementsHTML(h, u) {
   else if (st === 'failed') {
     list = S.local[h.id];
     note = `<p class="d-note">The in-page database did not start in this browser (${esc(S.db.error)}). The list below is kept in the page only; the same queries run in the repository tests.</p>`;
-  } else return `<p class="db-state" data-db-state>Starting the in-page Postgres database, about 10 MB, once.</p>`;
+  } else return `<p class="db-state" data-db-state>Starting the database in this page.</p>`;
   const costs = S.costs[h.id] || {};
   const items = list.map((a) => {
-    const link = cartLink(a.lines, C.items, a.order_type);
+    const link = cartLink(a.lines, C.items, a.order_type, C.read_started);
     const total = a.lines.reduce((s, l) => s + Number(l.retail), 0);
     const lines = a.lines.map((l) => {
       const it = item(l.item);
-      const v = variantForLine(it, l, a.order_type);
-      const gone = !it ? 'No longer in the current catalog' : (!v || !v.available) ? 'No longer available in the current catalog' : '';
+      const gone = lineStatus(it, l, a.order_type, C.read_started);
+      const v = it && it.variants.find((x) => x.id === Number(l.variant));
+      const note = it && v && l.step !== 'lid_panel' ? variantNote(it, v) : '';
       const c = costs[l.id];
-      return `<li><span>${esc(it ? (l.step === 'lid_panel' ? panelName(it.title).name + ' head panel, ' + panelName(it.title).colour : it.name) : l.title)}${gone ? `<span class="gone">${gone}</span>` : ''}</span><span>${money(Number(l.retail))}${u.can_see_cost && c ? `<span class="cost">cost ${money(c.cost)}, margin ${money(Number(l.retail) - c.cost)}</span>` : ''}</span></li>`;
+      const name = it ? (l.step === 'lid_panel' ? panelName(it.name).name + ' head panel, ' + panelName(it.name).colour : it.name + (note ? `, ${note}` : '')) : l.title;
+      return `<li><span>${esc(name)}${gone ? `<span class="gone">${esc(gone)}</span>` : ''}</span><span>${money(Number(l.retail))}${u.can_see_cost && c ? `<span class="cost">Illustrative cost ${money(c.cost)}<br>Illustrative margin ${money(Number(l.retail) - c.cost)}</span>` : ''}</span></li>`;
     }).join('');
     const open = S.checkout === a.id;
+    const types = orderTypesFor(a.lines, C.items);
+    const typeCtl = types.length >= 2 && u.can_order
+      ? `<label class="a-type">Order type <select data-ordertype="${esc(a.id)}" data-k="ot-${esc(a.id)}">${types.map((o) => `<option ${a.order_type === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`
+      : a.order_type ? `<span class="a-type" data-order-type>Order type: ${esc(a.order_type)}</span>` : '';
     return `<li data-arr="${esc(a.id)}">
       <div class="a-top"><b>${esc(a.family_label)}</b><span>${money(total)}</span></div>
       <ul class="a-lines">${lines}</ul>
       <div class="a-act">
-        <label class="sr-label" style="font-size:13px;color:var(--ink-2)">Order type
-          <select data-ordertype="${esc(a.id)}" data-k="ot-${esc(a.id)}" ${u.can_order ? '' : 'disabled'}>${['Buy Now', 'Pre-Need'].map((o) => `<option ${a.order_type === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
-        ${u.can_order ? `<button class="d-btn ${open ? 'quiet' : ''}" data-act="checkout" data-id="${esc(a.id)}" data-k="co-${esc(a.id)}" aria-expanded="${open}">${open ? 'Hide supplier checkout' : 'Open supplier checkout'}</button>` : ''}
+        ${typeCtl}
+        ${u.can_order ? `<button class="d-btn ${open ? 'quiet' : ''}" data-act="checkout" data-id="${esc(a.id)}" data-k="co-${esc(a.id)}" aria-expanded="${open}">${open ? 'Hide supplier order' : 'Prepare supplier order'}</button>` : ''}
       </div>
       ${open ? checkoutHTML(link) : ''}
     </li>`;
@@ -261,13 +270,14 @@ function arrangementsHTML(h, u) {
 }
 
 function checkoutHTML(link) {
+  const name = (l) => (item(l.item) ? item(l.item).name : l.title);
   return `<div class="checkout" data-checkout>
     <p style="margin:0 0 6px">The supplier link carries exactly these lines, built from the variant ids of the catalog read:</p>
     ${link.url ? `<code data-cart-url>${esc(link.url)}</code>` : ''}
-    <table>${link.lines.map((l) => `<tr><td>${esc(l.name)}<br><span style="color:var(--ink-3)">${esc(l.variantTitle)}, variant ${l.variant}, qty ${l.qty}</span></td><td>${money(l.public)}</td></tr>`).join('')}
-    ${link.leftOut.map((l) => `<tr><td colspan="2" style="color:var(--no)">${esc(l.title)}: ${esc(l.reason.toLowerCase())}, left out of the link</td></tr>`).join('')}</table>
-    <p class="d-note" style="margin-top:4px">The link opens Overnight Caskets’ public checkout (Shop Pay) at public prices, as checked on 24 November 2026. Wholesale prices would come from the partner account; that part is not checked here.</p>
-    ${link.url ? `<a class="open" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer" data-k="open-cart">Open on overnightcaskets.com</a>` : '<p class="d-note">Nothing in this arrangement can be ordered from the current catalog.</p>'}
+    <table>${link.lines.map((l) => `<tr><td>${esc(l.name)}<br><span style="color:var(--ink-3)">${esc(l.variantTitle)}, variant ${l.variant}, qty ${l.qty}</span></td><td>Public ${money(l.public)}</td></tr>`).join('')}
+    ${link.leftOut.map((l) => `<tr><td colspan="2">${esc(name(l))}: ${esc(l.reason[0].toLowerCase() + l.reason.slice(1))}, left out of the link</td></tr>`).join('')}</table>
+    ${link.url ? `<a class="open" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer" data-k="open-cart">Open public checkout (public prices)</a>
+    <p class="partner">Partner prices would come from the wholesale account; this page checks only the public checkout (Shop Pay), on 24 November 2026.</p>` : '<p class="d-note">Nothing in this arrangement can be ordered from the catalog read.</p>'}
   </div>`;
 }
 
@@ -296,10 +306,10 @@ function directorHTML() {
           <tr><th>Public price on overnightcaskets.com, read ${fmtRead(C.read_started)}</th><td>${money(pr.public)}</td></tr>
           <tr><th>Illustrative wholesale cost, <input class="pct" type="number" inputmode="decimal" min="1" max="100" step="1" value="${Number(h.wholesale_basis_pct)}" data-basis data-k="basis" aria-label="Wholesale cost as a percentage of the public price">% of public</th><td data-d-cost>${money(pr.cost)}</td></tr>
           <tr class="strong"><th>Retail, what the family sees</th><td data-d-retail>${money(pr.retail)}</td></tr>
-          <tr><th>Margin</th><td data-d-margin>${money(pr.margin)} (${(pr.margin / pr.retail * 100).toFixed(1)}%)</td></tr>
+          <tr><th>Illustrative margin</th><td data-d-margin>${money(pr.margin)} (${marginPct(pr.margin, pr.retail)}%)</td></tr>
         </table>
         <p class="rule-line" data-d-rule>${esc(ruleText(pr.rule))}</p>
-        <p class="d-note">The cost is an assumption until the partner price list is loaded. The struck-through price on the public site is never used. The price is frozen in the arrangement when it is saved.</p>`
+        <p class="d-note">The cost is an assumption until the partner price list is loaded. The price is frozen in the arrangement when it is saved.</p>`
         : `<p class="rule-line">Retail shown to the family: ${money(pr.retail)}</p>`}
         ${extra ? `<p class="rule-line"><label>Variant <select data-variant="${it.id}" data-k="variant">${it.variants.map((x) => `<option value="${x.id}" ${x.id === v.id ? 'selected' : ''} ${x.available ? '' : 'disabled'}>${esc(x.title)}, ${money(priceFor(h, it, x).retail)}</option>`).join('')}</select></label></p>` : ''}
       </section>
@@ -320,7 +330,7 @@ function directorHTML() {
         ${arrangementsHTML(h, u)}
       </section>
       <section class="d-sec">
-        <p class="d-note">Catalog snapshot read ${fmtRead(C.read_started)} from the public storefront feed: ${C.counts.casket} caskets and ${C.counts.lid_panel - 1} head panels used here; urns, pet caskets and the custom cap panel are left out. In production the catalog would come from the Shopify Admin API with its product update and delete notifications.</p>
+        <p class="d-note">Catalog read ${fmtRead(C.read_started)} from the public storefront feed: ${C.counts.casket} caskets and ${C.counts.lid_panel - 1} head panels used here; urns, pet caskets and the custom cap panel are left out. In production the catalog would come from the Shopify Admin API with its product update and delete notifications.</p>
       </section>
     </div>
   </aside>`;
@@ -339,7 +349,7 @@ function render() {
   app.style.setProperty('--accent', h.brand.accent);
   app.style.setProperty('--accent-soft', h.brand.accent_soft);
   app.style.setProperty('--paper', h.brand.paper);
-  app.style.setProperty('--brand', h.brand.font === 'Marcellus' ? "'Marcellus', Georgia, serif" : "'Cormorant Garamond', Georgia, serif");
+  app.style.setProperty('--brand', h.brand.font === 'Albert Sans' ? "'Albert Sans', 'Helvetica Neue', Arial, sans-serif" : "'Cormorant Garamond', Georgia, serif");
   app.dataset.font = h.brand.font;
   app.dataset.home = h.id;
   const p = P();
@@ -378,7 +388,7 @@ function renderPartial() {
     const set = (sel, txt) => { const el = app.querySelector(sel); if (el) el.textContent = txt; };
     set('[data-d-cost]', money(pr.cost));
     set('[data-d-retail]', money(pr.retail));
-    set('[data-d-margin]', `${money(pr.margin)} (${(pr.margin / pr.retail * 100).toFixed(1)}%)`);
+    set('[data-d-margin]', `${money(pr.margin)} (${marginPct(pr.margin, pr.retail)}%)`);
     set('[data-d-rule]', ruleText(pr.rule));
     app.querySelectorAll('[data-rule-id]').forEach((li) => li.classList.toggle('active', !!pr.rule && li.dataset.ruleId === pr.rule.id));
   }
@@ -386,7 +396,7 @@ function renderPartial() {
 }
 
 function renderPlates() {
-  $('#plates').innerHTML = C.homes.map((h, i) => `<button class="nameplate" data-act="home" data-i="${i}" aria-pressed="${i === S.home}">${mark(h, 36)}<span><span class="np-name" style="font-family:${h.brand.font === 'Marcellus' ? "'Marcellus'" : "'Cormorant Garamond'"},serif;color:${h.brand.accent};${h.brand.font === 'Marcellus' ? '' : 'font-weight:600;'}">${esc(h.name)}</span><span class="np-note">Sample funeral home</span></span></button>`).join(' ');
+  $('#plates').innerHTML = C.homes.map((h, i) => `<button class="nameplate" data-act="home" data-i="${i}" aria-pressed="${i === S.home}">${mark(h, 36)}<span><span class="np-name" style="font-family:${h.brand.font === 'Albert Sans' ? "'Albert Sans',sans-serif" : "'Cormorant Garamond',serif"};color:${h.brand.accent};${h.brand.font === 'Albert Sans' ? 'font-weight:500;font-size:13.5px;letter-spacing:.14em;text-transform:uppercase;' : 'font-weight:600;'}">${esc(h.name)}</span><span class="np-note">Sample funeral home</span></span></button>`).join(' ');
 }
 
 function renderSame() {
@@ -394,14 +404,9 @@ function renderSame() {
   const shared = a.rooms.flatMap((r) => r.items).find((id) => b.rooms.some((r) => r.items.includes(id)));
   if (!shared) return;
   const it = item(shared);
-  const pa = priceFor(a, it, defaultVariant(it)).retail;
-  const pb = priceFor(b, it, defaultVariant(it)).retail;
+  const pa = priceFor(a, it, shownVariant(it)).retail;
+  const pb = priceFor(b, it, shownVariant(it)).retail;
   $('#same-casket').textContent = `The same ${it.name} is ${money(pa)} at ${a.short} and ${money(pb)} at ${b.short}, from rules each home sets in its Director view.`;
-}
-function defaultVariant(it) {
-  const typed = it.variants.filter((v) => v.order_type);
-  if (typed.length) return typed.find((v) => v.order_type === 'Buy Now') || typed[0];
-  return it.variants.find((v) => v.available) || it.variants[0];
 }
 
 /* Database ---------------------------------------------------------------------------------- */
@@ -473,11 +478,13 @@ async function save() {
   if (!p.casket || p.saving || p.saved) return;
   p.saving = true;
   render();
-  const lines = sessionLines().map((l, i) => ({ step: l.step, item: l.it.id, variant: displayVariant(l.it).id, title: l.it.title, position: i }));
+  // The variants the family was shown, and their order type: what is saved is what can be ordered.
+  const plan = savePlan(sessionLines().map((l) => ({ step: l.step, item: l.it, variant: displayVariant(l.it) })));
+  const lines = plan.lines;
   try {
     const db = await ensureDb();
     const id = await transactionAs(db, userOf(h), async (q) => {
-      const a = await q('insert into arrangements (org_id, family_label) values ($1, $2) returning id', [h.id, 'Sample: ' + h.session_family]);
+      const a = await q('insert into arrangements (org_id, family_label, order_type) values ($1, $2, $3) returning id', [h.id, 'Sample: ' + h.session_family, plan.order_type]);
       const aid = a.rows[0].id;
       for (const l of lines) {
         await q('insert into arrangement_lines (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents, position) values ($1, $2, $3, $4, $5, $6, 0, $7)',
@@ -489,7 +496,7 @@ async function save() {
     await refreshHome(h);
   } catch (e) {
     const id = 'local-' + Date.now();
-    S.local[h.id].unshift({ id, family_label: 'Sample: ' + h.session_family, order_type: 'Buy Now', lines: lines.map((l) => ({ ...l, id: id + l.position, retail: retail(item(l.item)) })) });
+    S.local[h.id].unshift({ id, family_label: 'Sample: ' + h.session_family, order_type: plan.order_type, lines: lines.map((l) => ({ ...l, id: id + l.position, retail: retail(item(l.item)) })) });
     p.saved = { id, local: true };
   }
   p.saving = false;
@@ -499,14 +506,55 @@ async function save() {
 async function setOrderType(id, value) {
   const h = H();
   if (S.db.status === 'ready') {
+    // The database moves each Buy Now / Pre-Need line to the variant of the new type.
     await runAs(S.db.inst, userOf(h), 'update arrangements set order_type = $1 where id = $2', [value, id], { commit: true });
     await refreshHome(h);
   } else {
     const a = (S.local[h.id] || []).find((x) => x.id === id);
-    if (a) a.order_type = value;
+    if (a) {
+      a.order_type = value;
+      for (const l of a.lines) {
+        const v = (item(l.item)?.variants || []).find((x) => x.order_type === value);
+        if (v) l.variant = String(v.id);
+      }
+    }
   }
   render();
 }
+
+/* Presentation to the family ----------------------------------------------------------------- */
+
+function present(on) {
+  if (on === S.present) return;
+  S.present = on;
+  document.body.classList.toggle('presenting', on);
+  if (on) {
+    S.director = false; S.checkout = null; S.compare = false;
+    document.title = H().name;
+    const el = document.documentElement;
+    try {
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) { const r = req.call(el); if (r && r.catch) r.catch(() => {}); }
+    } catch (_) { /* the page still hides everything but the home */ }
+    window.scrollTo(0, 0);
+  } else {
+    document.title = PAGE_TITLE;
+    try {
+      const fs = document.fullscreenElement || document.webkitFullscreenElement;
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (fs && exit) { const r = exit.call(document); if (r && r.catch) r.catch(() => {}); }
+    } catch (_) { /* nothing to leave */ }
+  }
+  render();
+  if (!on) $('#present')?.focus({ preventScroll: true });
+}
+
+function fullscreenChanged() {
+  if (S.present && !(document.fullscreenElement || document.webkitFullscreenElement) && S.wasFull) present(false);
+  S.wasFull = !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+document.addEventListener('fullscreenchange', fullscreenChanged);
+document.addEventListener('webkitfullscreenchange', fullscreenChanged);
 
 /* Cross-tenant check ------------------------------------------------------------------------- */
 
@@ -518,7 +566,9 @@ async function runCheck() {
   const who = $('#who-line');
   btn.disabled = true;
   list.innerHTML = '';
-  who.textContent = 'Starting the in-page Postgres database, about 10 MB, once.';
+  who.textContent = 'Starting the database in this page.';
+  const verdict = $('#verdict');
+  verdict.hidden = true;
   let db;
   try { db = await ensureDb(); } catch (e) {
     who.textContent = `The in-page database did not start in this browser (${S.db.error}). The same checks run in the repository tests.`;
@@ -528,19 +578,30 @@ async function runCheck() {
   const owner = await runAsService(db, OWNER_COUNT, [B.id]);
   const n = owner.rows ? owner.rows[0].n : '?';
   const dir = A.users.find((u) => u.label === 'Director');
-  who.textContent = `Signed in as ${A.short}’s director (user ${dir.id}). ${B.short} holds ${n} ${n === 1 ? 'arrangement' : 'arrangements'}, counted by the service role, which bypasses row level security.`;
+  who.textContent = `Signed in as ${A.short}’s director. ${B.short} holds ${n} ${n === 1 ? 'arrangement' : 'arrangements'}, counted by the service role, which bypasses row level security.`;
   const checks = crossTenantChecks(A, B);
   list.innerHTML = checks.map((c) => `<li data-check="${c.id}"><span class="q">${esc(c.question)}</span><span class="a wait">running</span><code>${esc(c.sql.replace(/\$1/g, `'${c.params[0] || ''}'`))}${c.user.label === 'Arranger' ? '\n-- signed in as the arranger' : ''}</code></li>`).join('');
+  const got = {};
+  let allPass = true;
   for (const c of checks) {
     const r = await runAs(db, c.user, c.sql, c.params);
     const li = list.querySelector(`[data-check="${c.id}"] .a`);
     const ok = c.pass(r);
+    allPass = allPass && ok;
+    got[c.id] = r;
     li.className = 'a ' + (ok ? 'pass' : 'fail');
     li.textContent = (r.error && !ok ? 'error: ' + r.error : c.answer(r)) + (ok ? '' : ' (unexpected)');
   }
+  // The answer to the question, from the rows the database returned above.
+  const rowsRead = got.read.rows ? got.read.rows[0].n : '?';
+  const rowsChanged = got.update.rows ? got.update.rows.length : '?';
+  const rulesRead = got.rules.rows ? got.rules.rows[0].n : '?';
+  const pricesRead = got.prices.error ? 0 : (got.prices.rows || []).filter((x) => x.cost_cents != null).length;
+  verdict.innerHTML = `${allPass ? '<b>No.</b>' : '<b>Unexpected answer, see below.</b>'} ${esc(B.short)}’s arrangements read: ${rowsRead} rows. Changed: ${rowsChanged} rows. Its prices and pricing rules: ${Number(rulesRead) + pricesRead} rows.`;
+  verdict.hidden = false;
   btn.disabled = false;
   S.checkFrom = C.homes.indexOf(B);
-  btn.textContent = `Run it the other way, as ${B.short}`;
+  btn.textContent = `Ask the other way, as ${B.short}`;
 }
 
 /* Events ------------------------------------------------------------------------------------ */
@@ -594,6 +655,7 @@ document.addEventListener('click', (e) => {
       if (S.db.status === 'ready') { refreshHome(h).then(render); }
       break;
     case 'checkout': S.checkout = S.checkout === t.dataset.id ? null : t.dataset.id; break;
+    case 'leave-present': present(false); return;
     default: return;
   }
   render();
@@ -601,7 +663,7 @@ document.addEventListener('click', (e) => {
 
 function resetCheckButton() {
   S.checkFrom = S.home;
-  $('#run-check').textContent = 'Run cross-tenant check';
+  $('#run-check').textContent = 'Ask the database';
 }
 
 document.addEventListener('input', (e) => {
@@ -634,6 +696,7 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (S.present && !S.compare) { present(false); return; }
     if (S.director) { S.director = false; S.checkout = null; render(); $('[data-k="dv"]')?.focus(); }
     else if (S.compare) { S.compare = false; render(); }
     return;
@@ -662,10 +725,11 @@ async function start() {
   for (const h of C.homes) {
     S.per[h.id] = newSession(h);
     S.local[h.id] = h.samples.map((s) => ({ id: s.id, family_label: 'Sample: ' + s.family, order_type: s.order_type,
-      lines: s.lines.map((l, i) => ({ id: s.id + i, step: l.step, item: String(l.item), variant: String(l.variant), title: l.title, retail: retail(item(l.item), h) })) }));
+      lines: s.lines.map((l, i) => ({ id: s.id + i, step: l.step, item: String(l.item), variant: String(l.variant), title: l.title, retail: item(l.item) ? retail(item(l.item), h) : l.retail })) }));
   }
   render();
   $('#run-check').addEventListener('click', runCheck);
+  $('#present').addEventListener('click', () => present(true));
   const io = new IntersectionObserver((ents) => { if (ents.some((x) => x.isIntersecting)) { ensureDb().catch(() => {}); io.disconnect(); } }, { rootMargin: '300px' });
   io.observe($('#apart'));
 }

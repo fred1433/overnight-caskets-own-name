@@ -1,5 +1,5 @@
-// Serves site/ under https://theaipipe.com/demos/overnight-selection-room/ (static files only).
-const BASE = '/demos/overnight-selection-room';
+// Serves site/ under https://theaipipe.com/demos/overnight-caskets-own-name/ (static files only).
+const BASE = '/demos/overnight-caskets-own-name';
 const ROBOTS = 'noindex, nofollow';
 const MEDIA = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg' };
 

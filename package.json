@@ -1,9 +1,11 @@
 {
-  "name": "overnight-selection-room",
+  "name": "overnight-caskets-own-name",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "python3 scripts/build.py --fixture && node --test tests/",
+    "test:full": "python3 scripts/build.py && CATALOG=full node --test tests/",
+    "mutants": "node tests/mutants.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.15",

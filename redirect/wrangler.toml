@@ -1,0 +1,9 @@
+# The earlier address of the page, kept as a permanent redirect to the new one.
+name = "overnight-selection-room-demo"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+routes = [
+  { pattern = "theaipipe.com/demos/overnight-selection-room", zone_name = "theaipipe.com" },
+  { pattern = "theaipipe.com/demos/overnight-selection-room/*", zone_name = "theaipipe.com" }
+]

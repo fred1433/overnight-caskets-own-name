@@ -1,11 +1,11 @@
-# Static page served under theaipipe.com/demos/overnight-selection-room/
-name = "overnight-selection-room-demo"
+# Static page served under theaipipe.com/demos/overnight-caskets-own-name/
+name = "overnight-caskets-own-name-demo"
 main = "worker.js"
 compatibility_date = "2026-09-01"
 workers_dev = false
 routes = [
-  { pattern = "theaipipe.com/demos/overnight-selection-room", zone_name = "theaipipe.com" },
-  { pattern = "theaipipe.com/demos/overnight-selection-room/*", zone_name = "theaipipe.com" }
+  { pattern = "theaipipe.com/demos/overnight-caskets-own-name", zone_name = "theaipipe.com" },
+  { pattern = "theaipipe.com/demos/overnight-caskets-own-name/*", zone_name = "theaipipe.com" }
 ]
 
 [assets]

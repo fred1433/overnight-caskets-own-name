@@ -1,5 +1,5 @@
 {
-  "_note": "Two invented funeral homes for the demo. Names, monograms, colours, staff, families and arrangements are samples. Product handles must exist in the catalog snapshot.",
+  "_note": "Two invented funeral homes for the demo. Names, monograms, colours, staff, families and arrangements are samples. Product handles must exist in the catalog read. A line marked absent stands for a product the catalog read does not hold; its title and price are samples.",
   "homes": [
     {
       "id": "0b6f2a3e-5c1d-4e8a-9f20-1a0000000001",
@@ -39,7 +39,7 @@
       ],
       "session_family": "Morales family",
       "samples": [
-        { "family": "Lindqvist family", "order_type": "Buy Now", "lines": [
+        { "family": "Lindqvist family", "order_type": null, "lines": [
           { "step": "casket", "handle": "wood-funeral-caskets-maroset-jewish-poplar-with-white-crepe-interior-wood-casket" }
         ]}
       ]
@@ -49,7 +49,7 @@
       "name": "Calder Ruiz Memorial Chapel",
       "short": "Calder Ruiz",
       "monogram": "CR",
-      "brand": { "accent": "#5A2C47", "accent_soft": "#EADDE4", "paper": "#F5F3F2", "font": "Marcellus", "mark": "arch" },
+      "brand": { "accent": "#5A2C47", "accent_soft": "#EADDE4", "paper": "#F5F3F2", "font": "Albert Sans", "mark": "arch" },
       "wholesale_basis_pct": 60,
       "users": [
         { "id": "7d1e0c55-0000-4000-8000-b00000000001", "label": "Director", "role": "owner", "can_see_cost": true, "can_edit_pricing": true, "can_order": true },
@@ -104,6 +104,9 @@
         { "family": "Haddad family", "order_type": "Pre-Need", "lines": [
           { "step": "casket", "handle": "in-gods-care-spruce-blue-casket-with-blue-velvet-interior-metal-casket" },
           { "step": "lid_panel", "title": "In God's Care Head Panel - Blue" }
+        ]},
+        { "family": "Okafor family", "order_type": null, "lines": [
+          { "step": "casket", "absent": true, "title": "Casket saved before this catalog read (sample line)", "retail": 2450 }
         ]}
       ]
     }

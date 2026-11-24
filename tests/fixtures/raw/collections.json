@@ -1,0 +1,46 @@
+{
+ "collections": [
+  {
+   "id": 493867368641,
+   "handle": "jewish-caskets",
+   "title": "Jewish Caskets",
+   "products_count": 8,
+   "updated_at": "2026-11-24T04:21:33-08:00"
+  },
+  {
+   "id": 487442809025,
+   "handle": "metal-caskets",
+   "title": "Metal Caskets",
+   "products_count": 74,
+   "updated_at": "2026-11-24T04:21:33-08:00"
+  },
+  {
+   "id": 487445758145,
+   "handle": "religious-caskets",
+   "title": "Religious Caskets",
+   "products_count": 21,
+   "updated_at": "2026-11-24T04:21:33-08:00"
+  },
+  {
+   "id": 487442677953,
+   "handle": "solid-wood-caskets",
+   "title": "Solid Wood Caskets",
+   "products_count": 47,
+   "updated_at": "2026-11-24T04:21:33-08:00"
+  },
+  {
+   "id": 487446413505,
+   "handle": "veterans",
+   "title": "Veterans",
+   "products_count": 5,
+   "updated_at": "2026-11-20T04:20:05-08:00"
+  },
+  {
+   "id": 487442546881,
+   "handle": "wood-caskets",
+   "title": "Wood Caskets",
+   "products_count": 57,
+   "updated_at": "2026-11-24T04:21:33-08:00"
+  }
+ ]
+}

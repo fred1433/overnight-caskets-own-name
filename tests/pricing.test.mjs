@@ -2,8 +2,8 @@
 // every casket and head panel variant for both sample homes, and each rule stays in its collection.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalog, freshDb } from './helpers.mjs';
-import { priceFor, applyRule, costCents, ruleFor } from '../site/pricing.js';
+import { catalog, freshDb, FULL } from './helpers.mjs';
+import { priceFor, applyRule, costCents, ruleFor, marginPct } from '../site/pricing.js';
 
 const [A, B] = catalog.homes;
 const items = Object.values(catalog.items);
@@ -22,7 +22,7 @@ test('page and database give the same cost and retail for every variant, both ho
       }
     }
   }
-  assert.ok(n > 400, `${n} prices compared`);
+  assert.ok(n >= (FULL ? 400 : 40), `${n} prices compared`);
 });
 
 test('hand-checked prices', () => {
@@ -78,5 +78,18 @@ test('the same rule computed by the database at its edges', async () => {
   for (const [c, k, v, ro, f] of cases) {
     const r = await db.query('select app.apply_rule($1, $2, $3, $4, $5)::int as p', [c, k, v, ro, f]);
     assert.equal(r.rows[0].p, applyRule(c, { kind: k, value: v, rounding: ro, floor: f / 100 }), JSON.stringify([c, k, v, ro, f]));
+  }
+});
+
+test('C2: margin percentage rounded half up on whole cents', () => {
+  assert.equal(marginPct(255000, 400000), '63.8');           // 63.75 exactly; floating point gave 63.7
+  assert.equal(marginPct(191496, 350995), '54.6');
+  assert.equal(marginPct(0, 100000), '0.0');
+  assert.equal(marginPct(1, 3), '33.3');
+  assert.equal(marginPct(2, 3), '66.7');
+  for (const h of catalog.homes) for (const it of items) for (const v of it.variants) {
+    const p = priceFor(h, it, v);
+    const exact = (BigInt(p.margin) * 2000n + BigInt(p.retail)) / (2n * BigInt(p.retail));
+    assert.equal(marginPct(p.margin, p.retail), `${exact / 10n}.${exact % 10n}`, `${h.short} ${it.title}`);
   }
 });

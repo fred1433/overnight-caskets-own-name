@@ -3,57 +3,58 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Selection room for Overnight Caskets</title>
-<meta name="description" content="Two sample funeral homes, each with its own name, prices and rooms, on Overnight Caskets' public catalog as read on 24 November 2026.">
+<title>Your caskets, under a funeral home’s own name</title>
+<meta name="description" content="Two sample funeral homes present Overnight Caskets' public catalog under their own names and prices, as read on 24 November 2026.">
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://cdn.shopify.com">
-<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Mono:wght@400&family=Marcellus&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header class="intro page">
-  <p class="for">Prepared for Overnight Caskets on 24 November 2026</p>
   <h1>Your caskets, under a funeral home’s own name.</h1>
-  <p class="lede" id="lede">Two sample funeral homes, invented for this page, each with its own name, prices and rooms, on the 130 caskets and 36 head panels of overnightcaskets.com as read on 24 November 2026 at 12:29 UTC. The family sees only the home. The director sees the rest, and orders from you.</p>
+  <p class="lede" id="lede">Two sample funeral homes show your public catalog under their own names and prices; the family sees only the home, and the director prepares the order to you.</p>
   <div class="homes" role="group" aria-label="Open the app as">
     <span class="homes-label">Open the app as</span>
     <span id="plates"></span>
+    <button class="present-btn" id="present" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V3h4M17 7V3h-4M3 13v4h4M17 13v4h-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Present to family</button>
   </div>
 </header>
 
 <main>
   <section class="device-wrap" aria-label="The app, as a funeral home runs it on an iPad">
     <div class="device"><div id="app" class="app" aria-live="polite"></div></div>
-    <p class="try page">Keep two caskets for comparison, compare them, choose one, add a head panel and save. Then open Director view, top right.</p>
+    <p class="try page">Compare two caskets, save an arrangement, then open Director view, top right.</p>
   </section>
 
   <section class="apart page" id="apart" aria-labelledby="apart-title">
     <div class="apart-grid">
       <div>
-        <h2 id="apart-title">Two homes, one database, and neither can read the other</h2>
-        <p>Both sample homes live in one Postgres database that runs inside this page (PGlite, Postgres 17 compiled to WebAssembly), with the schema and row level security policies of the Supabase migration in the repository. Every row a home owns carries its id; a signed-in person reaches only the rows of the home they belong to.</p>
-        <p>The check below signs in as one home’s director the way Supabase Auth does (role <code>authenticated</code>, user id in the token) and asks the database for the other home’s rows.</p>
+        <h2 id="apart-title">Can the director of one home open another home’s arrangement?</h2>
+        <p>The button signs in as one home’s director and asks the database for the other home’s arrangements, prices and pricing rules.</p>
+        <button class="run-btn" id="run-check" type="button">Ask the database</button>
+        <p>In production this Postgres runs on the server; here it runs inside your browser so the demo never sleeps.</p>
         <p class="same" id="same-casket"></p>
-        <button class="run-btn" id="run-check" type="button">Run cross-tenant check</button>
-        <p class="repo-line">Schema, policies, catalog snapshot and tests: <a href="https://github.com/fred1433/overnight-selection-room">github.com/fred1433/overnight-selection-room</a>. <span id="test-line">The same checks run there against PGlite and against a local PostgreSQL 14.</span></p>
+        <p class="repo-line">Schema, policies and tests: <a href="https://github.com/fred1433/overnight-caskets-own-name" target="_blank" rel="noopener">github.com/fred1433/overnight-caskets-own-name</a></p>
       </div>
       <div>
         <div class="results" id="results">
-          <p class="who-line" id="who-line">Not run yet. The database starts in this page the first time it is needed (about 10 MB, once).</p>
+          <p class="who-line" id="who-line">Not asked yet.</p>
+          <p class="verdict" id="verdict" hidden></p>
           <ul class="checks" id="checks"></ul>
         </div>
-        <details class="policy">
-          <summary>The policies behind these answers</summary>
-<pre>create or replace function app.is_member(o uuid) returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.memberships m where m.org_id = o and m.user_id = auth.uid())
-$$;
-
-alter table public.arrangements enable row level security;
+        <details class="tech">
+          <summary>How it is checked, and the policies behind the answer</summary>
+          <p>Each question runs the way Supabase Auth signs in a request: role <code>authenticated</code>, the person’s user id in the token. The database is PGlite, Postgres 17 compiled to WebAssembly (about 10 MB, loaded once when first needed), with the schema and row level security of the migration in the repository. Staff would sign in with a 6-digit email code; this demo opens the two sample homes directly and sends no email.</p>
+          <p>The repository runs the same checks on PGlite and on a PostgreSQL 14 server, so the answer does not depend on the engine inside this page: two engines, same results.</p>
+          <p>Excerpt of the migration, <a href="https://github.com/fred1433/overnight-caskets-own-name/blob/main/supabase/migrations/20261124120000_funeral_homes.sql" target="_blank" rel="noopener">supabase/migrations/20261124120000_funeral_homes.sql</a>:</p>
+<pre>alter table public.arrangements enable row level security;
+alter table public.pricing_rules enable row level security;
+alter table public.arrangement_line_costs enable row level security;
 
 create policy "members read arrangements" on public.arrangements
   for select to authenticated using (app.is_member(org_id));
@@ -62,10 +63,21 @@ create policy "members save arrangements" on public.arrangements
 create policy "members update arrangements" on public.arrangements
   for update to authenticated using (app.is_member(org_id)) with check (app.is_member(org_id));
 
+create policy "members read rules" on public.pricing_rules
+  for select to authenticated using (app.is_member(org_id));
 create policy "pricing staff write rules" on public.pricing_rules
   for all to authenticated using (app.can(org_id, 'edit_pricing')) with check (app.can(org_id, 'edit_pricing'));
+
 create policy "cost readers" on public.arrangement_line_costs
-  for select to authenticated using (app.can(org_id, 'see_cost'));</pre>
+  for select to authenticated using (app.can(org_id, 'see_cost'));
+
+revoke execute on all functions in schema app from public;
+grant execute on function app.price_for(uuid, bigint) to service_role;
+
+create or replace function app.is_member(o uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.memberships m where m.org_id = o and m.user_id = auth.uid())
+$$;</pre>
         </details>
       </div>
     </div>
@@ -74,13 +86,13 @@ create policy "cost readers" on public.arrangement_line_costs
 
 <footer class="foot page">
   <div>
-    <p class="by">Built by Frederic de Lavenne de Choulot, The AI Pipe.</p>
-    <p id="source-line">Catalog: the public storefront feed of overnightcaskets.com, read once on 24 November 2026. In production the catalog would come from the Shopify Admin API, kept current by its product update and delete notifications.</p>
+    <p class="by">Prepared for Overnight Caskets by Frederic de Lavenne de Choulot, The AI Pipe.</p>
+    <p id="source-line">Catalog: the 130 caskets and 36 head panels of overnightcaskets.com, read from the public storefront feed on 24 November 2026 at 12:29 UTC. In production the catalog would come from the Shopify Admin API, kept current by its product update and delete notifications.</p>
     <p>Funeral homes, staff, families and arrangements on this page are invented samples. Wholesale costs are an assumption written as such; no order is placed from this page.</p>
   </div>
   <div class="call">
     <p>Fifteen minutes to walk through it together</p>
-    <a href="https://cal.theaipipe.com">cal.theaipipe.com</a>
+    <a href="https://cal.theaipipe.com" target="_blank" rel="noopener">cal.theaipipe.com</a>
   </div>
 </footer>
 
