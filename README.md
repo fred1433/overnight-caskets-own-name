@@ -92,18 +92,25 @@ python3 tests/test_page.py http://127.0.0.1:8813/   # the page in Chromium and W
 On a Supabase project: apply `supabase/migrations/`, then load `seed.sql` with the service role.
 The migration has been run on PGlite (Postgres 17) and on PostgreSQL 14, not on a hosted Supabase project.
 
-## Results on 24 Nov 2026
+## Results on 24 Nov 2026 (second pass after a closed review)
 
-- `npm test`: 28 passed on the 14-product fixture; `npm run test:full`: 28 passed on the full read
+- `npm test`: 32 passed on the 14-product fixture; `npm run test:full`: 32 passed on the full read
   (369 products). Among them: every product of every room saves as shown and can then be ordered; a
   Buy Now or Pre-Need variant only under its own order type; no person can read another home's prices
   through `app.price_for`; only a person allowed to order changes the order type or the status; a line's
-  variant belongs to its product; margin percentage on whole cents; no stray apostrophe in a name.
-- `sh tests/pg_local.sh`: 22 passed (the 11 RLS tests on PGlite and on PostgreSQL 14.23), fixture and full read.
-- `node tests/mutants.mjs`: 18 of 18 mutants caught, fixture and full read.
-- `tests/test_page.py` on the page: the full flow, presentation mode, and the director panel with a line
-  left out of the link, in Chromium and WebKit, with every request to overnightcaskets.com blocked and
-  counted (none made); no horizontal scroll and 44 px touch targets at 1440x900, 1180x820, 820x1180,
-  390x844, 1024x768 and 768x1024.
+  variant belongs to its product; a write aimed at the other home's arrangement answers exactly as an
+  unknown id, both directions, for the director and the arranger; an arranger reads no rule, no cost
+  basis and cannot call the cost function; an ordered arrangement is frozen and a line's title is the
+  catalog's; rule bounds hold in the database.
+- `sh tests/pg_local.sh`: 30 passed (the 15 RLS tests on PGlite and on PostgreSQL 14.23), fixture and full read.
+- `node tests/mutants.mjs`: 33 of 33 mutants caught, fixture and full read.
+- `tests/test_page.py` on the page: 268 checks passed in Chromium and WebKit, with every request to
+  overnightcaskets.com blocked and counted (none made): the full flow, presentation mode, the director
+  panel with a line left out of the link; no horizontal scroll and 44 px touch targets at six sizes; in
+  presentation, at 390x844, 430x932, 600x900, 844x390, 932x430, 820x1180, 1180x820 and 1440x900, every
+  family command visible, uncovered and clickable with no text over another; a markup of 100000000 % or
+  1.005 % refused on the page, and by the database when the page's bound is removed, with the family
+  price unchanged and equal to what the database saves; a refusal of the database shown and undone.
+  `--mutants` serves the page with each of these fixes undone: 4 of 4 caught in each engine.
 
 Built by Frederic de Lavenne de Choulot, The AI Pipe.
