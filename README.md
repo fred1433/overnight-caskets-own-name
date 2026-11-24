@@ -32,11 +32,24 @@ struck-through `compare_at_price`.
 - **Isolation.** Every row a home owns carries `org_id`; policies allow a signed-in person only the rows of
   homes they belong to (`app.is_member`). The arrangement list query has no home filter: the database
   returns each home its own rows. `app.price_for(home, variant)` reads any home's rules and cost basis, so
-  no signed-in person may execute it: only the pricing triggers (as the owner) and the service role call it.
-  Postgres grants every new function to PUBLIC; the migration revokes that for the whole `app` schema.
+  no signed-in person may execute it: only the pricing triggers (as the owner) and the service role call it,
+  and the same for `app.cost_cents` and `app.apply_rule`. Postgres grants every new function to PUBLIC; the
+  migration revokes that for the whole `app` schema.
+- **No answer about the other home.** A write aimed at another home's arrangement fails exactly as one
+  aimed at an id that does not exist: `app.price_line` looks the arrangement up among the caller's own
+  home only, before any other check, and a client cannot choose the id of a new arrangement or line
+  (column grants), so a duplicate key cannot reveal one either.
 - **Per-person access.** `can_see_cost`, `can_edit_pricing`, `can_order` on the membership. An arranger can
-  save arrangements but cannot read saved costs, change rules, change the order type or mark an
-  arrangement ordered; the database refuses each (policies, and the `guard_order` trigger for ordering).
+  save arrangements but cannot read the pricing rules, the cost basis or saved costs, call the cost
+  functions, change rules, change the order type or mark an arrangement ordered; the database refuses each
+  (policies, column grants, `app.basis_pct`, and the `guard_order` trigger for ordering).
+- **An ordered arrangement is frozen.** Once `status = 'ordered'`, no one signed in renames it, changes its
+  order type or status (`freeze_ordered` trigger) or adds a line (`app.price_line`); no grant or policy
+  lets a signed-in person change or remove a line. A line's title is the catalog's, whatever the client sent.
+- **Rules are bounded whole numbers.** Markup up to 1,000 % or $100,000, floor up to $100,000 in whole
+  dollars, cost basis a whole percentage: the page refuses anything else before writing, the database
+  refuses it too (`markup_bounds`, `floor_bounds`), and any refusal of the database is shown to the
+  director with the screen back on the value the database holds.
 - **Prices.** cost = public price x basis %; retail = rule (percent or amount), then rounding (to the cent,
   up to the whole dollar, or up to .95), then floor. First matching rule wins, by Overnight Caskets'
   own collections. `site/pricing.js` and `app.apply_rule` / `app.price_for` give the same cents. The margin
@@ -51,6 +64,8 @@ struck-through `compare_at_price`.
   the catalog read that are available; anything else is listed as left out. It is shown in full before it
   can be opened, and only the director's click opens it. On 24 Nov 2026 that link led to the public Shop
   Pay checkout at public prices; partner prices through the wholesale account are not checked here.
+- **Presentation.** On an iPad or a desktop the app fills the screen; on a phone, or any window under
+  700 px either way, it keeps its page layout and the screen scrolls, so every command stays reachable.
 - **Products the read does not hold.** Arrangement lines keep their title and price and have no foreign key
   to the catalog, so an arrangement holding a product the sync later deletes stays readable, marked "Not in
   the catalog read on <date>". One sample arrangement shows it.

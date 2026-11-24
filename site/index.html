@@ -49,7 +49,7 @@
         </div>
         <details class="tech">
           <summary>How it is checked, and the policies behind the answer</summary>
-          <p>Each question runs the way Supabase Auth signs in a request: role <code>authenticated</code>, the person’s user id in the token. The database is PGlite, Postgres 17 compiled to WebAssembly (about 10 MB, loaded once when first needed), with the schema and row level security of the migration in the repository. Staff would sign in with a 6-digit email code; this demo opens the two sample homes directly and sends no email.</p>
+          <p>Each question runs the way Supabase Auth signs in a request: role <code>authenticated</code>, the person’s user id in the token. The database is PGlite, Postgres 17 compiled to WebAssembly (about 10 MB, loaded once when first needed), with the schema and row level security of the migration in the repository. This demo opens the two sample homes directly and sends no email.</p>
           <p>The repository runs the same checks on PGlite and on a PostgreSQL 14 server, so the answer does not depend on the engine inside this page: two engines, same results.</p>
           <p>Excerpt of the migration, <a href="https://github.com/fred1433/overnight-caskets-own-name/blob/main/supabase/migrations/20261124120000_funeral_homes.sql" target="_blank" rel="noopener">supabase/migrations/20261124120000_funeral_homes.sql</a>:</p>
 <pre>alter table public.arrangements enable row level security;
@@ -63,8 +63,8 @@ create policy "members save arrangements" on public.arrangements
 create policy "members update arrangements" on public.arrangements
   for update to authenticated using (app.is_member(org_id)) with check (app.is_member(org_id));
 
-create policy "members read rules" on public.pricing_rules
-  for select to authenticated using (app.is_member(org_id));
+create policy "pricing staff read rules" on public.pricing_rules
+  for select to authenticated using (app.can(org_id, 'see_cost') or app.can(org_id, 'edit_pricing'));
 create policy "pricing staff write rules" on public.pricing_rules
   for all to authenticated using (app.can(org_id, 'edit_pricing')) with check (app.can(org_id, 'edit_pricing'));
 
@@ -87,7 +87,7 @@ $$;</pre>
 <footer class="foot page">
   <div>
     <p class="by">Prepared for Overnight Caskets by Frederic de Lavenne de Choulot, The AI Pipe.</p>
-    <p id="source-line">Catalog: the 130 caskets and 36 head panels of overnightcaskets.com, read from the public storefront feed on 24 November 2026 at 12:29 UTC. In production the catalog would come from the Shopify Admin API, kept current by its product update and delete notifications.</p>
+    <p id="source-line">Catalog: 130 caskets and 36 head panels used here (37 read), from the public storefront feed of overnightcaskets.com, read on 24 November 2026 at 12:29 UTC. In production the catalog would come from the Shopify Admin API, kept current by its product update and delete notifications.</p>
     <p>Funeral homes, staff, families and arrangements on this page are invented samples. Wholesale costs are an assumption written as such; no order is placed from this page.</p>
   </div>
   <div class="call">

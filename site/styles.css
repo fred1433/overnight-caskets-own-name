@@ -255,6 +255,7 @@ code { font-family: var(--mono); font-size: .86em; }
 .lines tfoot td { border-top: 1px solid var(--ink); font-weight: 600; font-size: 17px; }
 .sheet-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 20px; align-items: center; }
 .saved-note { margin: 0; font-size: 15px; color: var(--accent); }
+.save-err { flex-basis: 100%; margin: 0; text-align: right; font-size: 14.5px; color: var(--no); }
 
 /* Director view: what the family does not see */
 .scrim { position: absolute; inset: 0; background: rgba(30, 26, 22, .28); z-index: 4; }
@@ -317,7 +318,8 @@ code { font-family: var(--mono); font-size: .86em; }
 .checkout td[colspan] { text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--no); }
 .checkout .partner { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2); }
 .checkout a.open { display: inline-flex; align-items: center; min-height: 44px; margin-top: 6px; color: var(--ink); font-weight: 600; }
-.sql-inline { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); background: #fff; border: 1px solid var(--ledger-rule); border-radius: 3px; padding: 6px 8px; margin: 8px 0 0; white-space: pre-wrap; }
+.d-err { margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid var(--no); background: #fff; color: var(--no); font-size: 13px; line-height: 1.4; }
+.arr .d-err { margin: 10px 0 0; }
 .db-state { font-size: 13px; color: var(--ink-2); }
 
 /* Container sizes: iPad portrait, phone ------------------------------------------------- */
@@ -455,3 +457,28 @@ body.presenting .bar { padding-right: 64px; }
 /* Cormorant's default figures are old style: a zero reads as an o. Lining figures on the page. */
 .intro, .apart, .foot { font-variant-numeric: lining-nums; }
 .results .who-line { font-family: var(--sans); font-size: 13.5px; }
+
+/* Presentation on a phone, or on any window under 700 px either way: the app keeps the layout it has
+   on the page and the screen scrolls; nothing is pinned over something else. From 700 px both ways
+   the iPad layout fills the screen as before. */
+@media (max-width: 699px), (max-height: 699px) {
+  body.presenting .device-wrap { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  body.presenting .device .app { height: auto; min-height: 100vh; min-height: 100dvh; }
+  body.presenting .body { flex: none; }
+  body.presenting .stage { overflow: visible; grid-template-rows: auto; }
+  body.presenting .info { overflow: visible; }
+  body.presenting .panel-grid { overflow: visible; }
+  body.presenting .compare { position: fixed; z-index: 30; }
+}
+@media (min-width: 600px) and (max-width: 699px) {
+  body.presenting .photo { height: 400px; }
+}
+@media (min-width: 600px) and (max-height: 699px) {
+  /* A phone on its side: the casket and its name, price and first command side by side on the first screen. */
+  body.presenting .stage { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  body.presenting .photo { margin: 12px 0 12px 18px; height: calc(100vh - 140px); height: calc(100dvh - 140px); min-height: 220px; }
+  body.presenting .info { padding: 12px 22px 14px 24px; }
+  body.presenting .pname { font-size: 30px; }
+  body.presenting .price { font-size: 28px; margin-top: 10px; }
+  body.presenting .actions { grid-template-columns: 1fr; }
+}

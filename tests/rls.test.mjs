@@ -6,7 +6,8 @@ import { catalog, freshDb, sqlFiles } from './helpers.mjs';
 import { runAs, runAsService, transactionAs, ARRANGEMENTS_SQL } from '../site/db.js';
 import { crossTenantChecks, OWNER_COUNT } from '../site/checks.js';
 import { pgAdapter } from './pg_adapter.mjs';
-import { orderTypeProbe, everyRoomProductOrderable, orderingProbe, variantOwnerProbe } from './probes.mjs';
+import { orderTypeProbe, everyRoomProductOrderable, orderingProbe, variantOwnerProbe, crossHomeErrorProbe, arrangerCostProbe,
+  ruleBoundsProbe, orderedFrozenProbe } from './probes.mjs';
 import * as pricing from '../site/pricing.js';
 
 const [A, B] = catalog.homes;
@@ -143,5 +144,24 @@ for (const [name, open] of engines) {
       const staff = await transactionAs(db, dir(B), (q) => q("insert into arrangement_lines (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents) values ($1, $2, 'casket', 0, 0, 'x', 1)", [ok.id, B.id])).catch((e) => e.message);
       assert.match(String(staff), /not in the catalog/, 'staff cannot add a line outside the catalog');
     } finally { await db.close?.(); }
+  });
+  test(`${name}: I2, a write aimed at the other home's arrangement fails as one aimed at an unknown id, both directions`, async () => {
+    const db = await open();
+    try { assert.equal(await crossHomeErrorProbe(db, catalog), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: I3, an arranger reads no pricing rule, no cost basis and cannot call the cost function`, async () => {
+    const db = await open();
+    try { assert.equal(await arrangerCostProbe(db, catalog), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: I4, an ordered arrangement is frozen for everyone signed in; a line's title is the catalog's`, async () => {
+    const db = await open();
+    try { assert.equal(await orderedFrozenProbe(db, catalog), null); } finally { await db.close?.(); }
+  });
+
+  test(`${name}: I5, markups and floors are bounded whole numbers in the database`, async () => {
+    const db = await open();
+    try { assert.equal(await ruleBoundsProbe(db, catalog), null); } finally { await db.close?.(); }
   });
 }

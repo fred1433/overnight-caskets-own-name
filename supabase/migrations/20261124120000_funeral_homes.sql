@@ -12,7 +12,9 @@ create table public.organizations (
   name text not null,
   brand jsonb not null default '{}'::jsonb,            -- accent colour, monogram, typeface, logo
   -- Until the partner price list is loaded, cost is an illustrative share of the public price.
-  wholesale_basis_pct numeric(5,2) not null default 100 check (wholesale_basis_pct > 0 and wholesale_basis_pct <= 100),
+  -- A whole percentage: the page and the database then compute the same cents.
+  wholesale_basis_pct numeric(5,2) not null default 100
+    check (wholesale_basis_pct > 0 and wholesale_basis_pct <= 100 and wholesale_basis_pct = trunc(wholesale_basis_pct)),
   created_at timestamptz not null default now()
 );
 
@@ -61,9 +63,14 @@ create table public.pricing_rules (
   item_type text not null default 'casket',
   collection_handle text,                              -- null: every item of item_type not caught by an earlier rule
   markup_kind text not null check (markup_kind in ('percent', 'amount')),
-  markup_value numeric(10,2) not null check (markup_value >= 0),
+  -- Whole numbers within bounds, the same as the page's fields: up to 1,000 % or $100,000, floor up to
+  -- $100,000 in whole dollars. A value out of bounds is refused, never rounded.
+  markup_value numeric(10,2) not null
+    constraint markup_bounds check (markup_value >= 0 and markup_value = trunc(markup_value)
+      and markup_value <= case markup_kind when 'percent' then 1000 else 100000 end),
   rounding text not null check (rounding in ('cent', 'whole', 'ninety_five')),
-  floor_cents integer not null default 0 check (floor_cents >= 0),
+  floor_cents integer not null default 0
+    constraint floor_bounds check (floor_cents >= 0 and floor_cents <= 10000000 and floor_cents % 100 = 0),
   unique (org_id, position)
 );
 
@@ -155,6 +162,16 @@ language sql stable security definer set search_path = public as $$
           end)
 $$;
 
+-- The cost basis is pricing: only a person who sees cost or edits prices reads it, for their own home.
+create or replace function app.basis_pct(o uuid) returns numeric
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not (app.can(o, 'see_cost') or app.can(o, 'edit_pricing')) then
+    raise exception 'permission denied for the cost basis' using errcode = '42501';
+  end if;
+  return (select org.wholesale_basis_pct from public.organizations org where org.id = o);
+end $$;
+
 -- Prices, in whole cents, identical to site/pricing.js ------------------------------------
 
 create or replace function app.apply_rule(cost_cents bigint, markup_kind text, markup_value numeric,
@@ -206,26 +223,43 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- The database prices each line from the home's own rules and freezes cost at save time.
--- A line saved by a signed-in person must name a variant of its own product, and a Buy Now or
--- Pre-Need variant must match the order type of its arrangement. Lines imported by the service
--- role (arrangements made before a product left the catalog) keep their saved title and price.
+-- For a signed-in person the arrangement is looked up among their own home's only, first: an
+-- arrangement of another home and an id that does not exist get the same answer. A line goes only
+-- into an arrangement not yet ordered, names a variant of its own product, a Buy Now or Pre-Need
+-- variant matches the arrangement's order type, and its title is the catalog's.
+-- Lines imported by the service role (arrangements made before a product left the catalog) keep
+-- their saved title and price.
 create or replace function app.price_line() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare v record; a_type text; p record;
+declare v record; a_type text; a_status text; p record; signed_in boolean := auth.uid() is not null;
 begin
+  if signed_in then
+    select ar.order_type, ar.status into a_type, a_status from public.arrangements ar
+     where ar.id = new.arrangement_id and ar.org_id = new.org_id and app.is_member(new.org_id);
+    if not found then
+      raise exception 'no such arrangement' using errcode = '42501';
+    end if;
+    if a_status = 'ordered' then
+      raise exception 'this arrangement is ordered and can no longer change' using errcode = '42501';
+    end if;
+  else
+    select ar.order_type into a_type from public.arrangements ar where ar.id = new.arrangement_id;
+  end if;
   select cv.item_id, cv.order_type into v from public.catalog_variants cv where cv.id = new.variant_id;
   if not found then
-    if auth.uid() is null then return new; end if;
+    if not signed_in then return new; end if;
     raise exception 'variant % is not in the catalog', new.variant_id;
   end if;
   if v.item_id <> new.item_id then
     raise exception 'variant % belongs to product %, not to product %', new.variant_id, v.item_id, new.item_id;
   end if;
   if v.order_type is not null then
-    select a.order_type into a_type from public.arrangements a where a.id = new.arrangement_id;
     if a_type is distinct from v.order_type then
       raise exception 'variant % is a % variant, the arrangement is %', new.variant_id, v.order_type, coalesce(a_type, 'without an order type');
     end if;
+  end if;
+  if signed_in then
+    new.title_at_save := (select ci.title from public.catalog_items ci where ci.id = new.item_id);
   end if;
   select * into p from app.price_for(new.org_id, new.variant_id);
   new.retail_cents := p.retail_cents;
@@ -257,6 +291,18 @@ begin
   return new;
 end $$;
 
+-- Once ordered, an arrangement is what the supplier received: no one signed in renames it or changes
+-- its order type or status. Its lines cannot be added (app.price_line), changed or removed (no grant
+-- and no policy lets a signed-in person update or delete a line).
+create or replace function app.freeze_ordered() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null and old.status = 'ordered' then
+    raise exception 'this arrangement is ordered and can no longer change' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+
 -- When the order type changes, each Buy Now / Pre-Need line moves to its product's variant of
 -- that type (same product, same price on the catalog read), so the saved variant stays the one ordered.
 create or replace function app.repoint_lines() returns trigger
@@ -279,15 +325,18 @@ create trigger freeze_cost after insert on public.arrangement_lines
   for each row execute function app.freeze_cost();
 create trigger guard_order before insert or update on public.arrangements
   for each row execute function app.guard_order();
+create trigger freeze_ordered before update on public.arrangements
+  for each row execute function app.freeze_ordered();
 create trigger repoint_lines after update of order_type on public.arrangements
   for each row when (new.order_type is distinct from old.order_type) execute function app.repoint_lines();
 
 -- Postgres lets every role execute a new function. price_for takes any home's id and reads that
--- home's rules and cost basis, so only the triggers above (as the owner) and the service role call it.
+-- home's rules and cost basis, so only the triggers above (as the owner) and the service role call it;
+-- the cost and rule arithmetic likewise.
 revoke execute on all functions in schema app from public;
-grant execute on function app.is_member(uuid), app.can(uuid, text), app.apply_rule(bigint, text, numeric, text, bigint),
-  app.cost_cents(bigint, numeric) to authenticated, service_role;
+grant execute on function app.is_member(uuid), app.can(uuid, text), app.basis_pct(uuid) to authenticated, service_role;
 grant execute on function app.price_for(uuid, bigint) to service_role;
+grant execute on function app.cost_cents(bigint, numeric), app.apply_rule(bigint, text, numeric, text, bigint) to service_role;
 
 -- Row level security ---------------------------------------------------------------------
 
@@ -318,8 +367,8 @@ create policy "owner sets access" on public.memberships
 create policy "catalog is readable" on public.catalog_items for select to authenticated using (true);
 create policy "catalog is readable" on public.catalog_variants for select to authenticated using (true);
 
-create policy "members read rules" on public.pricing_rules
-  for select to authenticated using (app.is_member(org_id));
+create policy "pricing staff read rules" on public.pricing_rules
+  for select to authenticated using (app.can(org_id, 'see_cost') or app.can(org_id, 'edit_pricing'));
 create policy "pricing staff write rules" on public.pricing_rules
   for all to authenticated using (app.can(org_id, 'edit_pricing')) with check (app.can(org_id, 'edit_pricing'));
 
@@ -350,12 +399,17 @@ create policy "members write lines" on public.arrangement_lines
 create policy "cost readers" on public.arrangement_line_costs
   for select to authenticated using (app.can(org_id, 'see_cost'));
 
-grant select on public.organizations, public.memberships, public.catalog_items, public.catalog_variants,
+-- The cost basis column stays out of the columns a signed-in person may select (app.basis_pct reads it).
+-- Ids, authors and dates are set by the database: a client cannot choose them, so it cannot probe
+-- whether an id of another home exists.
+grant select (id, name, brand, created_at) on public.organizations to authenticated;
+grant select on public.memberships, public.catalog_items, public.catalog_variants,
   public.pricing_rules, public.selection_rooms, public.selection_room_items, public.session_steps,
   public.arrangements, public.arrangement_lines, public.arrangement_line_costs to authenticated;
 grant update (name, brand, wholesale_basis_pct) on public.organizations to authenticated;
 grant insert, update on public.memberships to authenticated;
 grant insert, update, delete on public.pricing_rules, public.selection_rooms, public.selection_room_items to authenticated;
-grant insert, update on public.arrangements to authenticated;
-grant insert on public.arrangement_lines to authenticated;
+grant insert (org_id, family_label, order_type, status) on public.arrangements to authenticated;
+grant update (family_label, order_type, status) on public.arrangements to authenticated;
+grant insert (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents, position) on public.arrangement_lines to authenticated;
 grant all on all tables in schema public to service_role;

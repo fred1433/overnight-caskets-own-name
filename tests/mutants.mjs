@@ -8,7 +8,8 @@ import { catalog, sqlFiles, ROOT } from './helpers.mjs';
 import { openDb, runAs } from '../site/db.js';
 import { crossTenantChecks } from '../site/checks.js';
 import * as realPricing from '../site/pricing.js';
-import { orderTypeProbe, everyRoomProductOrderable, orderingProbe, variantOwnerProbe } from './probes.mjs';
+import { orderTypeProbe, everyRoomProductOrderable, orderingProbe, variantOwnerProbe, crossHomeErrorProbe, arrangerCostProbe,
+  ruleBoundsProbe, orderedFrozenProbe } from './probes.mjs';
 
 const SQL_MUTANTS = [
   ['read policy open to everyone', 'for select to authenticated using (app.is_member(org_id));\ncreate policy "members save arrangements"', 'for select to authenticated using (true);\ncreate policy "members save arrangements"'],
@@ -30,6 +31,25 @@ const SQL_MUTANTS = [
   ['G4: guard reads the wrong switch', "not app.can(new.org_id, 'order')", "not app.can(new.org_id, 'see_cost')"],
   // G5
   ['G5: variant of another product accepted', 'if v.item_id <> new.item_id then', 'if false then'],
+  // I2
+  ['I2: price_line reads the arrangement without the home filter', 'where ar.id = new.arrangement_id and ar.org_id = new.org_id and app.is_member(new.org_id);', 'where ar.id = new.arrangement_id;'],
+  ['I2: price_line skips the membership check', 'and ar.org_id = new.org_id and app.is_member(new.org_id);', 'and ar.org_id = new.org_id;'],
+  ['I2: a client chooses the id of a new arrangement', 'grant insert (org_id, family_label, order_type, status) on public.arrangements to authenticated;', 'grant insert on public.arrangements to authenticated;'],
+  ['I2: a client chooses the id of a new line', 'grant insert (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents, position) on public.arrangement_lines to authenticated;', 'grant insert on public.arrangement_lines to authenticated;'],
+  // I3
+  ['I3: every member reads the rules', "for select to authenticated using (app.can(org_id, 'see_cost') or app.can(org_id, 'edit_pricing'));", 'for select to authenticated using (app.is_member(org_id));'],
+  ['I3: the cost basis column readable', 'grant select (id, name, brand, created_at) on public.organizations to authenticated;', 'grant select on public.organizations to authenticated;'],
+  ['I3: the cost function callable', 'grant execute on function app.cost_cents(bigint, numeric), app.apply_rule(bigint, text, numeric, text, bigint) to service_role;', 'grant execute on function app.cost_cents(bigint, numeric), app.apply_rule(bigint, text, numeric, text, bigint) to authenticated, service_role;'],
+  ['I3: app.basis_pct answers everyone', "if not (app.can(o, 'see_cost') or app.can(o, 'edit_pricing')) then", 'if false then'],
+  // I4
+  ['I4: an ordered arrangement can be renamed or retyped', "if auth.uid() is not null and old.status = 'ordered' then", 'if false then'],
+  ['I4: a line can be added to an ordered arrangement', "if a_status = 'ordered' then", 'if false then'],
+  ['I4: the line keeps the title the client typed', 'new.title_at_save := (select ci.title from public.catalog_items ci where ci.id = new.item_id);', 'null;'],
+  // I5
+  ['I5: markup unbounded', "and markup_value <= case markup_kind when 'percent' then 1000 else 100000 end", ''],
+  ['I5: decimal markups accepted', 'markup_value >= 0 and markup_value = trunc(markup_value)', 'markup_value >= 0'],
+  ['I5: floor unbounded', 'floor_cents >= 0 and floor_cents <= 10000000 and floor_cents % 100 = 0', 'floor_cents >= 0'],
+  ['I5: decimal cost basis accepted', 'and wholesale_basis_pct = trunc(wholesale_basis_pct)', ''],
 ];
 
 const JS_MUTANTS = [
@@ -47,12 +67,15 @@ async function dbCaught(db, pr) {
     const r = await db.query('select retail_cents::int as p from app.price_for($1, $2)', [h.id, v.id]);
     if (r.rows[0].p !== pr.priceFor(h, it, v).retail) return `price of ${it.title}`;
   }
-  for (const [name, probe] of [['order type', orderTypeProbe], ['ordering', orderingProbe], ['variant owner', variantOwnerProbe]]) {
+  for (const [name, probe] of [['order type', orderTypeProbe], ['ordering', orderingProbe], ['variant owner', variantOwnerProbe],
+    ['I2 cross-home errors', crossHomeErrorProbe], ['I3 arranger and cost', arrangerCostProbe], ['I5 rule bounds', ruleBoundsProbe]]) {
     const why = await probe(db, catalog);
     if (why) return `${name} probe: ${why}`;
   }
   const why = await everyRoomProductOrderable(db, catalog, pr);
   if (why) return `every room product probe: ${why}`;
+  const frozen = await orderedFrozenProbe(db, catalog); // last: it leaves an ordered arrangement behind
+  if (frozen) return `I4 ordered frozen probe: ${frozen}`;
   return null;
 }
 

@@ -131,6 +131,6 @@ test('the SQL shown on the page is an excerpt of the migration, line for line', 
   for (const t of ['arrangements', 'pricing_rules', 'arrangement_line_costs']) {
     assert.ok(lines.includes(`alter table public.${t} enable row level security;`), `${t}: row level security enabled`);
   }
-  assert.ok(pre.includes('create policy "members read rules" on public.pricing_rules'), 'the read policy of pricing_rules is shown');
+  assert.ok(pre.includes('create policy "pricing staff read rules" on public.pricing_rules'), 'the read policy of pricing_rules is shown');
   assert.ok(html.includes(`blob/main/${MIGRATION_PATH}`), 'links to the migration file');
 });

@@ -210,7 +210,7 @@ function reviewHTML() {
       </table>
       <div class="sheet-actions">
         ${p.saved ? `<p class="saved-note" data-saved>Saved. ${esc(h.short)} has this arrangement on file.</p><button class="btn" data-act="new" data-k="new">Begin another selection</button>`
-          : `<button class="btn" data-act="step" data-step="casket" data-k="back-casket">Back to the caskets</button><button class="btn primary" data-act="save" data-k="save" ${p.saving ? 'disabled' : ''}>${p.saving ? 'Saving' : 'Save arrangement'}</button>`}
+          : `${p.saveError ? `<p class="save-err" role="alert" data-save-error>${esc(p.saveError)}</p>` : ''}<button class="btn" data-act="step" data-step="casket" data-k="back-casket">Back to the caskets</button><button class="btn primary" data-act="save" data-k="save" ${p.saving ? 'disabled' : ''}>${p.saving ? 'Saving' : 'Save arrangement'}</button>`}
       </div>
     </article>
   </div>`;
@@ -261,12 +261,11 @@ function arrangementsHTML(h, u) {
         ${typeCtl}
         ${u.can_order ? `<button class="d-btn ${open ? 'quiet' : ''}" data-act="checkout" data-id="${esc(a.id)}" data-k="co-${esc(a.id)}" aria-expanded="${open}">${open ? 'Hide supplier order' : 'Prepare supplier order'}</button>` : ''}
       </div>
+      ${S.arrError && S.arrError.id === a.id ? `<p class="d-err" role="alert" data-arr-error>${esc(S.arrError.text)}</p>` : ''}
       ${open ? checkoutHTML(link) : ''}
     </li>`;
   }).join('');
-  return `${note}<ul class="arr">${items || '<li>No arrangement on file yet.</li>'}</ul>
-    <p class="sql-inline">select … from arrangements a left join arrangement_lines l … group by a.id</p>
-    <p class="d-note">That query has no home filter. Row level security returns ${esc(h.short)}’s rows only.</p>`;
+  return `${note}<ul class="arr">${items || '<li>No arrangement on file yet.</li>'}</ul>`;
 }
 
 function checkoutHTML(link) {
@@ -298,13 +297,13 @@ function directorHTML() {
       <section class="d-sec">
         <div class="who"><p>Signed in as <b>${esc(u.label)}</b>, ${esc(h.short)}</p>
           <button class="switch" role="switch" aria-checked="${arranger}" data-act="as-arranger" data-k="as-arranger"><span class="track"></span>Preview as arranger</button></div>
-        <p class="d-note">Staff sign in with a 6-digit email code scoped to their home; this demo opens two sample homes directly.${arranger ? ' An arranger guides the family and saves arrangements; cost, margin, pricing rules and supplier orders are hidden from this person, and the database refuses them too.' : ''}</p>
+        <p class="d-note">Staff sign in with a 6-digit email code scoped to their home; this demo opens two sample homes directly.${arranger ? ' An arranger guides the family and saves arrangements. Cost, margin, pricing rules and supplier orders are hidden from this person, and the database refuses them too: it returns no rule, cost basis or saved cost, and refuses ordering.' : ''}</p>
       </section>
       <section class="d-sec">
         <h3>${esc(it.name)}</h3>
         ${u.can_see_cost ? `<table class="ladder">
           <tr><th>Public price on overnightcaskets.com, read ${fmtRead(C.read_started)}</th><td>${money(pr.public)}</td></tr>
-          <tr><th>Illustrative wholesale cost, <input class="pct" type="number" inputmode="decimal" min="1" max="100" step="1" value="${Number(h.wholesale_basis_pct)}" data-basis data-k="basis" aria-label="Wholesale cost as a percentage of the public price">% of public</th><td data-d-cost>${money(pr.cost)}</td></tr>
+          <tr><th>Illustrative wholesale cost, <input class="pct" type="number" inputmode="numeric" min="1" max="100" step="1" value="${Number(h.wholesale_basis_pct)}" data-basis data-k="basis" aria-label="Wholesale cost as a percentage of the public price">% of public</th><td data-d-cost>${money(pr.cost)}</td></tr>
           <tr class="strong"><th>Retail, what the family sees</th><td data-d-retail>${money(pr.retail)}</td></tr>
           <tr><th>Illustrative margin</th><td data-d-margin>${money(pr.margin)} (${marginPct(pr.margin, pr.retail)}%)</td></tr>
         </table>
@@ -315,13 +314,14 @@ function directorHTML() {
       </section>
       ${u.can_edit_pricing ? `<section class="d-sec">
         <h3>Pricing rules, first match wins</h3>
+        ${S.ruleError ? `<p class="d-err" role="alert" data-rule-error>${esc(S.ruleError)}</p>` : ''}
         <ul class="rules">${h.rules.map((r, i) => `<li data-rule-id="${r.id}" class="${pr.rule && pr.rule.id === r.id ? 'active' : ''}">
           <div class="r-top"><b>${esc(r.label)}</b><span>${r.collection ? `${esc(C.collections[r.collection].title)} collection` : r.item_type === 'lid_panel' ? 'every head panel' : 'every casket not above'}</span></div>
           <div class="r-edit">
             <label>Markup<select data-rule="${i}" data-f="kind" data-k="r${i}-kind"><option value="percent" ${r.kind === 'percent' ? 'selected' : ''}>%</option><option value="amount" ${r.kind === 'amount' ? 'selected' : ''}>$</option></select></label>
-            <label>Value<input type="number" inputmode="decimal" min="0" step="1" value="${Number(r.value)}" data-rule="${i}" data-f="value" data-k="r${i}-value"></label>
+            <label>Value<input type="number" inputmode="numeric" min="0" max="${BOUNDS[r.kind]}" step="1" value="${Number(r.value)}" data-rule="${i}" data-f="value" data-k="r${i}-value"></label>
             <label>Rounding<select data-rule="${i}" data-f="rounding" data-k="r${i}-rounding">${Object.entries(ROUND).map(([k, l]) => `<option value="${k}" ${r.rounding === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-            <label>Floor, $<input type="number" inputmode="decimal" min="0" step="1" value="${Number(r.floor)}" data-rule="${i}" data-f="floor" data-k="r${i}-floor"></label>
+            <label>Floor, $<input type="number" inputmode="numeric" min="0" max="${BOUNDS.floor}" step="1" value="${Number(r.floor)}" data-rule="${i}" data-f="floor" data-k="r${i}-floor"></label>
           </div></li>`).join('')}</ul>
         <p class="d-note">Collections are Overnight Caskets’ own. Rule changes reprice the rooms at once and are written to the database as this director.</p>
       </section>` : ''}
@@ -330,7 +330,7 @@ function directorHTML() {
         ${arrangementsHTML(h, u)}
       </section>
       <section class="d-sec">
-        <p class="d-note">Catalog read ${fmtRead(C.read_started)} from the public storefront feed: ${C.counts.casket} caskets and ${C.counts.lid_panel - 1} head panels used here; urns, pet caskets and the custom cap panel are left out. In production the catalog would come from the Shopify Admin API with its product update and delete notifications.</p>
+        <p class="d-note">Catalog read ${fmtRead(C.read_started)} from the public storefront feed: ${C.counts.casket} caskets and ${C.counts.lid_panel - 1} head panels used here; urns, pet caskets and the custom cap panel are left out.</p>
       </section>
     </div>
   </aside>`;
@@ -442,14 +442,56 @@ function ensureDb() {
 }
 
 async function pushSettings(db, h, asService) {
-  const stmts = [['update organizations set wholesale_basis_pct = $1 where id = $2', [Number(h.wholesale_basis_pct), h.id]]];
+  const stmts = [['update organizations set wholesale_basis_pct = $1 where id = $2 returning id', [Number(h.wholesale_basis_pct), h.id]]];
   for (const r of h.rules) {
-    stmts.push(['update pricing_rules set markup_kind = $1, markup_value = $2, rounding = $3, floor_cents = $4 where id = $5',
+    stmts.push(['update pricing_rules set markup_kind = $1, markup_value = $2, rounding = $3, floor_cents = $4 where id = $5 returning id',
       [r.kind, Number(r.value), r.rounding, Math.round(Number(r.floor) * 100), r.id]]);
   }
   if (asService) { for (const [s, a] of stmts) await runAsService(db, s, a); return; }
+  // Each write must change its one row. Anything else is said to the director and the screen goes
+  // back to what the database holds.
   const u = userOf(h);
-  for (const [s, a] of stmts) await runAs(db, u, s, a, { commit: true });
+  let failed = null;
+  for (const [s, a] of stmts) {
+    const r = await runAs(db, u, s, a, { commit: true });
+    if (r.error || !r.rows || r.rows.length !== 1) { failed = r.error || 'no row changed'; break; }
+  }
+  if (failed) {
+    await loadSettings(db, h);
+    S.ruleError = `Not saved: the database refused this change, so the rooms keep the rules it holds.`;
+    console.warn('pricing write refused:', failed);
+    render();
+  }
+}
+
+// The rules and cost basis the database holds for this home, read as the person signed in.
+async function loadSettings(db, h) {
+  const u = userOf(h);
+  const r = await runAs(db, u, 'select id, markup_kind, markup_value::float8 as value, rounding, floor_cents from pricing_rules where org_id = $1', [h.id]);
+  for (const row of r.rows || []) {
+    const x = h.rules.find((q) => q.id === row.id);
+    if (x) { x.kind = row.markup_kind; x.value = Number(row.value); x.rounding = row.rounding; x.floor = Number(row.floor_cents) / 100; }
+  }
+  const b = await runAs(db, u, 'select app.basis_pct($1)::float8 as b', [h.id]);
+  if (b.rows && b.rows[0].b != null) h.wholesale_basis_pct = Number(b.rows[0].b);
+}
+
+// The bounds of the database (constraints markup_bounds and floor_bounds): whole numbers, up to
+// 1,000 % or $100,000, floor up to $100,000. A value outside them is refused here before any write.
+const BOUNDS = { percent: 1000, amount: 100000, floor: 100000 };
+function ruleFieldError(t) {
+  const raw = String(t.value).trim();
+  const whole = /^\d+$/.test(raw);
+  if (t.matches('[data-basis]')) {
+    return whole && Number(raw) >= 1 && Number(raw) <= 100 ? null : 'Not saved: the cost basis is a whole percentage from 1 to 100.';
+  }
+  const r = H().rules[Number(t.dataset.rule)];
+  if (t.dataset.f === 'floor') {
+    return whole && Number(raw) <= BOUNDS.floor ? null : `Not saved: the floor is a whole number of dollars, up to ${money(BOUNDS.floor * 100)}.`;
+  }
+  const max = BOUNDS[r.kind];
+  return whole && Number(raw) <= max ? null
+    : `Not saved: the markup is a whole number, up to ${r.kind === 'percent' ? max.toLocaleString('en-US') + '%' : money(max * 100)}.`;
 }
 
 async function refreshHome(h) {
@@ -460,6 +502,19 @@ async function refreshHome(h) {
   S.arr[h.id] = (r.rows || []).map((a) => ({ ...a, lines: typeof a.lines === 'string' ? JSON.parse(a.lines) : a.lines }));
   const c = await runAs(db, u, COSTS_SQL);
   S.costs[h.id] = Object.fromEntries((c.rows || []).map((x) => [x.line_id, { cost: x.cost_cents, public: x.public_price_cents }]));
+}
+
+function showRuleError() {
+  const sec = $('#app .rules');
+  if (!sec) return;
+  let el = $('#app [data-rule-error]');
+  if (!S.ruleError) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('p');
+    el.className = 'd-err'; el.setAttribute('role', 'alert'); el.setAttribute('data-rule-error', '');
+    sec.parentElement.insertBefore(el, sec);
+  }
+  el.textContent = S.ruleError;
 }
 
 let pushTimer = null;
@@ -481,20 +536,27 @@ async function save() {
   // The variants the family was shown, and their order type: what is saved is what can be ordered.
   const plan = savePlan(sessionLines().map((l) => ({ step: l.step, item: l.it, variant: displayVariant(l.it) })));
   const lines = plan.lines;
-  try {
-    const db = await ensureDb();
-    const id = await transactionAs(db, userOf(h), async (q) => {
+  let db = null;
+  try { db = await ensureDb(); } catch (_) { /* the database did not start: kept in the page, said in Director view */ }
+  p.saveError = null;
+  if (db) {
+    try {
+      const id = await transactionAs(db, userOf(h), async (q) => {
       const a = await q('insert into arrangements (org_id, family_label, order_type) values ($1, $2, $3) returning id', [h.id, 'Sample: ' + h.session_family, plan.order_type]);
       const aid = a.rows[0].id;
       for (const l of lines) {
         await q('insert into arrangement_lines (arrangement_id, org_id, step_key, item_id, variant_id, title_at_save, retail_cents, position) values ($1, $2, $3, $4, $5, $6, 0, $7)',
           [aid, h.id, l.step, l.item, l.variant, l.title, l.position]);
-      }
-      return aid;
-    });
-    p.saved = { id };
-    await refreshHome(h);
-  } catch (e) {
+        }
+        return aid;
+      });
+      p.saved = { id };
+      await refreshHome(h);
+    } catch (e) {
+      p.saveError = 'Not saved: the database refused this arrangement. Nothing was kept.';
+      console.warn('arrangement write refused:', e && e.message);
+    }
+  } else {
     const id = 'local-' + Date.now();
     S.local[h.id].unshift({ id, family_label: 'Sample: ' + h.session_family, order_type: plan.order_type, lines: lines.map((l) => ({ ...l, id: id + l.position, retail: retail(item(l.item)) })) });
     p.saved = { id, local: true };
@@ -507,7 +569,13 @@ async function setOrderType(id, value) {
   const h = H();
   if (S.db.status === 'ready') {
     // The database moves each Buy Now / Pre-Need line to the variant of the new type.
-    await runAs(S.db.inst, userOf(h), 'update arrangements set order_type = $1 where id = $2', [value, id], { commit: true });
+    const r = await runAs(S.db.inst, userOf(h), 'update arrangements set order_type = $1 where id = $2 returning id', [value, id], { commit: true });
+    const refused = r.error || !r.rows || r.rows.length !== 1;
+    if (refused) {
+      const was = (S.arr[h.id] || []).find((x) => x.id === id);
+      S.arrError = { id, text: `Not changed: the database refused it. The order type stays ${was && was.order_type ? was.order_type : 'as saved'}.` };
+      console.warn('order type write refused:', r.error || 'no row changed');
+    } else S.arrError = null;
     await refreshHome(h);
   } else {
     const a = (S.local[h.id] || []).find((x) => x.id === id);
@@ -621,7 +689,7 @@ document.addEventListener('click', (e) => {
   const p = P();
   switch (act) {
     case 'home':
-      S.home = Number(t.dataset.i); S.compare = false; S.checkout = null;
+      S.home = Number(t.dataset.i); S.compare = false; S.checkout = null; S.ruleError = null; S.arrError = null;
       if (S.db.status === 'ready') refreshHome(H()).then(render);
       resetCheckButton();
       break;
@@ -669,23 +737,31 @@ function resetCheckButton() {
 document.addEventListener('input', (e) => {
   const t = e.target;
   const h = H();
+  if (!t.matches('[data-rule], [data-basis]')) return;
+  const numeric = t.matches('[data-basis]') || t.dataset.f === 'value' || t.dataset.f === 'floor';
+  if (numeric && t.value === '' && !(t.validity && t.validity.badInput)) return; // still typing
+  const bad = numeric ? ruleFieldError(t) : null;
+  if (bad) {
+    // Refused before any write: the field goes back to the value in force and the director is told.
+    const r = t.matches('[data-basis]') ? null : h.rules[Number(t.dataset.rule)];
+    t.value = r ? String(Number(r[t.dataset.f])) : String(Number(h.wholesale_basis_pct));
+    S.ruleError = bad;
+    showRuleError();
+    return;
+  }
+  if (S.ruleError) { S.ruleError = null; showRuleError(); }
   if (t.matches('[data-rule]')) {
     const r = h.rules[Number(t.dataset.rule)];
     const f = t.dataset.f;
-    if (f === 'value' || f === 'floor') {
-      const v = Number(t.value);
-      if (!Number.isFinite(v) || v < 0 || t.value === '') return;
-      r[f] = v;
-    } else r[f] = t.value;
-    schedulePush();
-    renderPartial();
-  } else if (t.matches('[data-basis]')) {
-    const v = Number(t.value);
-    if (!Number.isFinite(v) || v <= 0 || v > 100) return;
-    h.wholesale_basis_pct = v;
-    schedulePush();
-    renderPartial();
-  }
+    r[f] = f === 'value' || f === 'floor' ? Number(t.value) : t.value;
+    if (f === 'kind' && Number(r.value) > BOUNDS[r.kind]) {
+      r.value = BOUNDS[r.kind];
+      S.ruleError = `The markup is capped at ${r.kind === 'percent' ? '1,000%' : '$100,000'}.`;
+      render();
+    }
+  } else h.wholesale_basis_pct = Number(t.value);
+  schedulePush();
+  renderPartial();
 });
 
 document.addEventListener('change', (e) => {

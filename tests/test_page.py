@@ -5,7 +5,10 @@ Every request to overnightcaskets.com is blocked and counted: the page must neve
 supplier link by itself, and the tests never open it either.
   --only g2,g3   runs only the checks of G2 (a Pre-Need-only casket saves and can be ordered) and
                  G3 (the director panel never overflows), which also run on the earlier page.
+  --only i1,i5   runs only I1 (presentation reachable at every size) and I5 (no silent write).
   --shots DIR    saves screenshots: 1440, 390, iPad family, iPad director, presentation.
+  --mutants      serves the page with each fix of I1 and I5 undone (route rewrite, nothing on disk)
+                 and checks that the I1 / I5 checks fail on every one of them.
 """
 import argparse
 import asyncio
@@ -20,6 +23,7 @@ ap.add_argument("url", nargs="?", default="http://127.0.0.1:8813/")
 ap.add_argument("--only", default="")
 ap.add_argument("--shots", default="")
 ap.add_argument("--engines", default="chromium,webkit")
+ap.add_argument("--mutants", action="store_true")
 ARGS = ap.parse_args()
 URL = ARGS.url
 ONLY = set(filter(None, ARGS.only.split(",")))
@@ -41,9 +45,24 @@ async def small_targets(pg):
       .filter(([, w, h]) => w < 44 || h < 44)""")
 
 
-async def new_page(browser, w, h, hits=None):
+async def new_page(browser, w, h, hits=None, patches=None):
+    """patches: {file name: [(old, new), ...]} rewrites what the page receives (tests of I5 and the mutants)."""
     ctx = await browser.new_context(viewport={"width": w, "height": h}, has_touch=w < 1260, is_mobile=w < 600)
     pg = await ctx.new_page()
+    pg.missing = []
+    def rewriter(name, edits):
+        async def rewrite(route):
+            resp = await route.fetch()
+            body = await resp.text()
+            for old, new in edits:
+                if old and old not in body:
+                    pg.missing.append(f"MISSING in {name}: {old[:50]}")
+                    continue
+                body = body.replace(old, new) if old else body + new
+            await route.fulfill(response=resp, body=body)
+        return rewrite
+    for name, edits in (patches or {}).items():
+        await pg.route(re.compile(r".*/" + re.escape(name) + r"(\?.*)?$"), rewriter(name, edits))
 
     async def block(route):
         if hits is not None:
@@ -260,6 +279,275 @@ async def layout(browser, engine):
         await ctx.close()
 
 
+# I1: in presentation, every command of the family session is visible, uncovered and clickable at
+# every size, and no two texts overlap; what does not fit scrolls with the wheel or a finger.
+PRES_SIZES = [(390, 844), (430, 932), (600, 900), (844, 390), (932, 430), (820, 1180), (1180, 820), (1440, 900)]
+
+WHERE_JS = """(sel) => { const e = document.querySelector(sel); if (!e) return 'missing';
+  const b = e.getBoundingClientRect();
+  if (b.width < 1 || b.height < 1) return 'hidden';
+  if (b.bottom > innerHeight - 1) return ['below', Math.min(220, Math.ceil(b.bottom - innerHeight + 12))];
+  if (b.top < 1) return ['above', Math.max(-220, Math.floor(b.top - 12))];
+  return 'in'; }"""
+
+REACH_JS = """(sel) => { const e = document.querySelector(sel); if (!e) return 'missing';
+  const b = e.getBoundingClientRect();
+  if (b.width < 1 || b.height < 1) return 'hidden';
+  if (b.top < -1 || b.left < -1 || b.bottom > innerHeight + 1 || b.right > innerWidth + 1)
+    return 'off-screen (top ' + Math.round(b.top) + ', bottom ' + Math.round(b.bottom) + ', window ' + innerHeight + ')';
+  const t = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  return t && (t === e || e.contains(t)) ? 'ok' : 'covered by ' + (t ? (t.className || t.tagName) : 'nothing'); }"""
+
+OVERLAP_JS = """(scope) => {
+  const root = document.querySelector(scope); if (!root) return ['no ' + scope];
+  const clip = (el) => { const r = el.getBoundingClientRect(); let x1 = r.left, y1 = r.top, x2 = r.right, y2 = r.bottom;
+    for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { const q = p.getBoundingClientRect();
+        x1 = Math.max(x1, q.left); y1 = Math.max(y1, q.top); x2 = Math.min(x2, q.right); y2 = Math.min(y2, q.bottom); } }
+    return [x1, y1, x2, y2]; };
+  const own = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+  const R = [...root.querySelectorAll('*')].filter((el) => own(el) && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+    .map((el) => [el, clip(el)]).filter(([, r]) => r[2] - r[0] > 1 && r[3] - r[1] > 1);
+  const out = [];
+  for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+    const [a, ra] = R[i], [b, rb] = R[j];
+    if (a.contains(b) || b.contains(a)) continue;
+    const w = Math.min(ra[2], rb[2]) - Math.max(ra[0], rb[0]), h = Math.min(ra[3], rb[3]) - Math.max(ra[1], rb[1]);
+    if (w > 2 && h > 2) out.push(`"${a.textContent.trim().slice(0, 24)}" / "${b.textContent.trim().slice(0, 24)}"`);
+  }
+  return out.slice(0, 3); }"""
+
+
+# Mobile WebKit has no wheel in Playwright: there a finger's scroll is played on the nearest box a
+# person can scroll (overflow auto or scroll, or the page when it is not locked), never on a box
+# whose overflow is hidden.
+FINGER_JS = """([sel, dy]) => { const e = document.querySelector(sel);
+  for (let p = e.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight + 1) {
+      const b = p.scrollTop; p.scrollTop += dy; if (p.scrollTop !== b) return 'box'; } }
+  if (getComputedStyle(document.body).overflowY !== 'hidden' && getComputedStyle(document.documentElement).overflowY !== 'hidden') {
+    const se = document.scrollingElement, b = se.scrollTop; se.scrollTop += dy; if (se.scrollTop !== b) return 'page'; }
+  return 'nothing'; }"""
+
+
+async def bring_into_view(pg, sel):
+    """Scrolls as a person would, with the wheel over the middle of the window, until sel is in view."""
+    vw, vh = await pg.evaluate("[innerWidth, innerHeight]")
+    for _ in range(40):
+        where = await pg.evaluate(WHERE_JS, sel)
+        if not isinstance(where, list):
+            return
+        dy = where[1]
+        try:
+            await pg.mouse.move(vw * 0.5, vh * 0.5)
+            await pg.mouse.wheel(0, dy)
+        except Exception:
+            if await pg.evaluate(FINGER_JS, [sel, dy]) == "nothing":
+                return
+        await pg.wait_for_timeout(90)
+
+
+async def i1_presentation(browser, engine, sizes=PRES_SIZES, patches=None):
+    fails_here = []
+    for w, h in sizes:
+        ctx, pg = await new_page(browser, w, h, patches=patches)
+        tag = f"I1 {engine} {w}x{h}"
+        problems = []
+
+        async def reach(sel, label):
+            await bring_into_view(pg, sel)
+            r = await pg.evaluate(REACH_JS, sel)
+            if r != "ok":
+                problems.append(f"{label}: {r}")
+            return r == "ok"
+
+        async def press(sel, label):
+            if await reach(sel, label):
+                await pg.click(sel, timeout=4000)
+            else:
+                await pg.eval_on_selector(sel, "e => e.click()")
+
+        async def overlap(scope, state):
+            o = await pg.evaluate(OVERLAP_JS, scope)
+            if o:
+                problems.append(f"{state}: texts overlap {o}")
+
+        await pg.click("#present")
+        await pg.wait_for_timeout(400)
+        await overlap("#app", "casket")
+        await reach(".info [data-act=choose]", "Choose this casket")
+        await reach(".leave", "Leave")
+        await press("[data-act=keep]", "Keep for comparison")
+        if await pg.get_attribute("[data-act=keep]", "aria-pressed") != "true":
+            problems.append("Keep did not toggle")
+        await press("[data-act=next]", "Next casket")
+        await press("[data-act=keep]", "Keep the second casket")
+        await press("[data-act=compare]", "Compare side by side")
+        if not await pg.locator(".compare").count():
+            problems.append("Compare did not open")
+        else:
+            await overlap(".compare", "compare")
+            await reach("[data-act=close-compare]", "Back to the room")
+            await press(".compare [data-act=choose]", "Choose, in the comparison")
+        if not await pg.locator(".panels").count():
+            problems.append("choosing did not reach the head panel step")
+        else:
+            await overlap("#app", "panels")
+            await reach("[data-act=step][data-step=casket]", "Casket step")
+            await press(".panel-grid li:nth-child(2) .ptile", "A head panel")
+            await press("[data-act=to-review]", "Continue to review")
+        if not await pg.locator(".review").count():
+            problems.append("the review step was not reached")
+        else:
+            await overlap("#app", "review")
+            await press("[data-act=save]", "Save arrangement")
+            try:
+                await pg.wait_for_selector("[data-saved]", timeout=90000)
+            except Exception:
+                problems.append("Save arrangement did not save")
+        await press(".leave", "Leave")
+        await pg.wait_for_timeout(300)
+        if await pg.evaluate("document.body.classList.contains('presenting')"):
+            problems.append("Leave did not leave the presentation")
+        problems += pg.missing
+        msg = f"{tag}: every family command visible, uncovered, clickable; no text over another {problems[:4]}"
+        if problems:
+            fails_here.append(msg)
+        await ctx.close()
+    return fails_here
+
+
+# I5: no write fails in silence. The page refuses a markup out of bounds before writing it, the
+# database refuses it too, and any refusal of the database is said to the director, with the screen
+# back on the value the database holds.
+RULE_SEL = "[data-k=r2-value]"   # Fennimore Hollis, Solid wood: cost + 120%, Cambridge Solid Mahogany $3,509.95
+REFUSE_ALL = """
+create function app.refuse_for_test() returns trigger language plpgsql as $$
+begin raise exception 'refused for the test'; end $$;
+create trigger zz_refuse before update on public.pricing_rules for each row execute function app.refuse_for_test();
+create trigger zz_refuse before update on public.arrangements for each row execute function app.refuse_for_test();
+"""
+NO_CLIENT_BOUND = ("const bad = numeric ? ruleFieldError(t) : null;", "const bad = null;")
+
+
+async def open_rules(pg):
+    await pg.click("[data-act=director]")
+    await pg.wait_for_selector(".arr", timeout=90000)
+
+
+async def i5_case(browser, engine, label, patches, value, want_refusal=True):
+    problems = []
+    ctx, pg = await new_page(browser, 1180, 820, patches=patches)
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    await open_rules(pg)
+    await pg.fill(RULE_SEL, value)
+    await pg.wait_for_timeout(900)
+    msg = await pg.locator("[data-rule-error]").inner_text() if await pg.locator("[data-rule-error]").count() else ""
+    if want_refusal and "Not saved" not in msg:
+        problems.append(f"no refusal shown ({msg!r})")
+    field = await pg.input_value(RULE_SEL)
+    if field != "120":
+        problems.append(f"the field shows {field}, the database holds 120")
+    await pg.click("[data-act=close-director]")
+    price = await pg.inner_text("[data-price]")
+    if price != "$3,509.95":
+        problems.append(f"the family sees {price}, the database prices $3,509.95")
+    # what the family is shown is what the database saves
+    await pg.click(".info [data-act=choose]")
+    await pg.click("[data-act=panel][data-id=none]")
+    await pg.click("[data-act=to-review]")
+    shown = await pg.inner_text(".lines tfoot .l-price")
+    await pg.click("[data-act=save]")
+    await pg.wait_for_selector("[data-saved], [data-save-error]", timeout=90000)
+    await open_rules(pg)
+    card = pg.locator(".arr > li", has_text="Morales")
+    saved = await card.locator(".a-top span").inner_text() if await card.count() else "nothing"
+    if saved != shown:
+        problems.append(f"the review showed {shown}, the database saved {saved}")
+    if errors:
+        problems.append(f"page errors {errors[:1]}")
+    problems += pg.missing
+    await ctx.close()
+    return [f"I5 {engine} {label}: {p}" for p in problems]
+
+
+async def i5_order_type(browser, engine, patches):
+    """The database refuses every update: the order type change must be said and undone on screen."""
+    problems = []
+    ctx, pg = await new_page(browser, 1180, 820, patches=patches)
+    await pg.click(".info [data-act=choose]")
+    await pg.click("[data-act=panel][data-id=none]")
+    await pg.click("[data-act=to-review]")
+    await pg.click("[data-act=save]")
+    await pg.wait_for_selector("[data-saved]", timeout=90000)
+    await open_rules(pg)
+    card = pg.locator(".arr > li", has_text="Morales")
+    await card.locator("select").select_option("Pre-Need")
+    await pg.wait_for_timeout(700)
+    card = pg.locator(".arr > li", has_text="Morales")
+    shown = await card.locator("select").input_value()
+    if shown != "Buy Now":
+        problems.append(f"the select shows {shown}, the database holds Buy Now")
+    err = await card.locator("[data-arr-error]").inner_text() if await card.locator("[data-arr-error]").count() else ""
+    if "Not changed" not in err:
+        problems.append(f"no refusal shown on the arrangement ({err!r})")
+    problems += pg.missing
+    await ctx.close()
+    return [f"I5 {engine} order type refused: {p}" for p in problems]
+
+
+async def i5_all(browser, engine, extra=None):
+    """extra: patches applied on top of each case (the mutants)."""
+    def merge(base):
+        out = {k: list(v) for k, v in (base or {}).items()}
+        for k, v in (extra or {}).items():
+            out.setdefault(k, []).extend(v)
+        return out
+    out = []
+    out += await i5_case(browser, engine, "100000000% refused by the page", merge(None), "100000000")
+    out += await i5_case(browser, engine, "1.005% refused by the page", merge(None), "1.005")
+    out += await i5_case(browser, engine, "100000000% with the page's bound removed, refused by the database",
+                         merge({"app.js": [NO_CLIENT_BOUND]}), "100000000")
+    out += await i5_case(browser, engine, "150% refused by the database", merge({"migration.sql": [("", REFUSE_ALL)]}), "150")
+    out += await i5_order_type(browser, engine, merge({"migration.sql": [("", REFUSE_ALL)]}))
+    return out
+
+
+# Each one undoes one fix of I1 or I5 in what the browser receives; the checks above must fail.
+PAGE_MUTANTS = [
+    ("I1: presentation keeps the fixed iPad layout on a phone", "i1", {"styles.css": [("@media (max-width: 699px), (max-height: 699px) {", "@media (max-width: 1px) and (max-height: 1px) {")]}),
+    ("I5: rule write errors ignored", "i5db", {"app.js": [("if (failed) {", "if (false) {")]}),
+    ("I5: order type errors ignored", "i5ot", {"app.js": [("if (refused) {", "if (false) {")]}),
+    ("I5: the page's own bound removed, database bound removed", "i5both", {"app.js": [NO_CLIENT_BOUND],
+        "migration.sql": [("constraint markup_bounds check", "constraint markup_bounds_gone check (true or")]}),
+]
+
+
+async def page_mutants(browser, engine):
+    caught = 0
+    for name, kind, patch in PAGE_MUTANTS:
+        try:
+            if kind == "i1":
+                by = await i1_presentation(browser, engine, sizes=[(390, 844), (844, 390)], patches=patch)
+            elif kind == "i5db":
+                by = await i5_case(browser, engine, "mutant", {**patch, "migration.sql": [("", REFUSE_ALL)]}, "150")
+            elif kind == "i5ot":
+                by = await i5_order_type(browser, engine, {**patch, "migration.sql": [("", REFUSE_ALL)]})
+            else:
+                by = await i5_case(browser, engine, "mutant", patch, "100000000")
+        except Exception as e:  # a mutant that breaks the flow is caught, unless its patch did not apply
+            by = [f"flow broke: {str(e)[:120]}"]
+        missing = any("MISSING" in b for b in by)
+        ok = bool(by) and not missing
+        caught += ok
+        print(("caught   " if ok else "SURVIVED ") + f"{engine} {name}" + (f" (by {by[0][:150]})" if by else ""))
+        if not ok:
+            fails.append(f"page mutant survived: {engine} {name}")
+    print(f"{caught} of {len(PAGE_MUTANTS)} page mutants caught ({engine})")
+
+
 async def shots(browser, out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -299,7 +587,19 @@ async def main():
     async with async_playwright() as p:
         for name in ARGS.engines.split(","):
             b = await getattr(p, name).launch()
+            if ARGS.mutants:
+                await page_mutants(b, name)
+                await b.close()
+                continue
             if ONLY:
+                if "i1" in ONLY:
+                    for m in await i1_presentation(b, name):
+                        check(False, m)
+                    check(True, f"I1 {name}: presentation checked at {len(PRES_SIZES)} sizes")
+                if "i5" in ONLY:
+                    for m in await i5_all(b, name):
+                        check(False, m)
+                    check(True, f"I5 {name}: refusals checked")
                 if "g2" in ONLY:
                     await g2_pre_need_only(b, name)
                 if "g3" in ONLY:
@@ -308,6 +608,14 @@ async def main():
                 await flow(b, name)
                 await g2_pre_need_only(b, name)
                 await layout(b, name)
+                i1 = await i1_presentation(b, name)
+                for m in i1:
+                    check(False, m)
+                check(not i1, f"I1 {name}: presentation reachable at {len(PRES_SIZES)} sizes")
+                i5 = await i5_all(b, name)
+                for m in i5:
+                    check(False, m)
+                check(not i5, f"I5 {name}: no silent write (bounds on the page and in the database, refusals shown and undone)")
             if ARGS.shots and name == "webkit":
                 await shots(b, ARGS.shots)
             await b.close()
